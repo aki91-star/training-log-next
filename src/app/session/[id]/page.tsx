@@ -54,25 +54,46 @@ function newSession(): Session {
 // ===== MetricField =====
 
 function MetricField({
-  label, unit, value, onChange,
+  label,
+  unit,
+  value = '',
+  onChange,
+  readOnly = false,
+  displayValue,
+  highlight = false,
 }: {
-  label: string; unit: string; value: string
-  onChange: (v: string) => void
+  label: string
+  unit: string
+  value?: string
+  onChange?: (v: string) => void
+  readOnly?: boolean
+  displayValue?: string | number | null
+  highlight?: boolean
 }) {
   return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-[10px] text-gray-500">{label}</span>
-      <div className="flex items-center gap-0.5">
+    <div className="flex min-w-0 flex-col items-center gap-0.5">
+      <span className="flex h-4 w-full items-end justify-center truncate text-center text-[9px] leading-none text-gray-500">
+        {label}
+      </span>
+      {readOnly ? (
+        <span
+          className={`flex h-7 w-full items-center justify-center rounded-md text-xs font-bold tabular-nums ${
+            highlight ? 'text-orange-400' : 'text-gray-600'
+          }`}
+        >
+          {displayValue ?? '—'}
+        </span>
+      ) : (
         <input
           type="number"
           inputMode="decimal"
           value={value}
-          onChange={e => onChange(e.target.value)}
+          onChange={e => onChange?.(e.target.value)}
           placeholder="—"
-          className="w-14 bg-[#252525] border border-white/10 rounded-lg text-center text-sm text-white py-1.5 outline-none focus:border-orange-500/60 transition-colors"
+          className="h-7 w-full min-w-0 rounded-md border border-white/10 bg-[#252525] px-0.5 text-center text-xs tabular-nums text-white outline-none focus:border-orange-500/60"
         />
-        <span className="text-[10px] text-gray-600 w-5">{unit}</span>
-      </div>
+      )}
+      <span className="text-[8px] leading-none text-gray-600">{unit}</span>
     </div>
   )
 }
@@ -97,30 +118,30 @@ function SetRow({
 
   return (
     <>
-      <div className="px-4 py-3.5 border-b border-white/8 last:border-0">
+      <div className="px-2.5 py-3.5 border-b border-white/8 last:border-0">
         {/* セット番号 + 前セット反映 + 削除 */}
         <div className="flex items-center gap-2 mb-3">
           <span className="text-sm font-semibold">{setNum}セット目</span>
           {prevRow && (
             <button
               onClick={() => onChange({ ...prevRow.metrics })}
-              className="flex items-center gap-1 text-[11px] text-gray-400 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2.5 py-1 transition-colors"
+              className="flex items-center gap-1 text-[11px] text-gray-400 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-2 py-1 transition-colors shrink-0"
             >
               <ArrowLeft size={11} />
               前セットを反映
             </button>
           )}
-          <div className="flex-1" />
+          <div className="flex-1 min-w-0" />
           <button
             onClick={() => setConfirmDelete(true)}
-            className="text-gray-600 hover:text-red-400 transition-colors"
+            className="text-gray-600 hover:text-red-400 transition-colors shrink-0"
           >
             <Trash2 size={15} />
           </button>
         </div>
 
-        {/* メトリクス + 推定1RM */}
-        <div className="flex items-end gap-3 flex-wrap">
+        {/* メトリクス + 推定1RM（6列固定・折り返しなし） */}
+        <div className="grid grid-cols-6 gap-x-0.5 sm:gap-x-1">
           <MetricField label="重量" unit="kg"
             value={m.weight?.toString() ?? ''}
             onChange={v => onChange({ ...m, weight: v ? +v : undefined })} />
@@ -136,19 +157,10 @@ function SetRow({
           <MetricField label="RPE" unit="/10"
             value={m.rpe?.toString() ?? ''}
             onChange={v => onChange({ ...m, rpe: v ? +v : undefined })} />
-
-          {/* 推定1RM（右端・読み取り専用） */}
-          <div className="flex flex-col items-center gap-1 ml-auto">
-            <span className="text-[10px] text-gray-500">推定1RM</span>
-            <div className="flex items-center gap-0.5">
-              <span className={`w-14 text-center text-sm font-bold py-1.5 ${
-                estRM ? 'text-orange-400' : 'text-gray-600'
-              }`}>
-                {estRM ?? '—'}
-              </span>
-              <span className="text-[10px] text-gray-600 w-5">kg</span>
-            </div>
-          </div>
+          <MetricField label="推定1RM" unit="kg"
+            readOnly
+            displayValue={estRM}
+            highlight={!!estRM} />
         </div>
 
         {/* メモ */}
@@ -207,15 +219,15 @@ function ExerciseGroup({
   return (
     <div className="bg-[#1a1a1a] rounded-xl border border-white/8 overflow-hidden">
       {/* ヘッダー */}
-      <div className="flex items-center gap-2 px-4 py-3">
-        <span className="text-sm font-semibold flex-1 truncate">{exerciseName}</span>
-        <span className="text-xs text-gray-500 shrink-0">{rows.length}セット</span>
+      <div className="flex items-center gap-1.5 px-3 py-3">
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{exerciseName}</span>
+        <span className="shrink-0 text-xs text-gray-500">{rows.length}セット</span>
         <button
           onClick={onCopy}
-          className="flex items-center gap-1.5 text-xs bg-white/5 hover:bg-orange-500/15 hover:text-orange-400 border border-white/10 hover:border-orange-500/30 text-gray-400 rounded-lg px-2.5 py-1.5 transition-colors shrink-0"
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-400 transition-colors hover:border-orange-500/30 hover:bg-orange-500/15 hover:text-orange-400"
         >
           <Plus size={12} strokeWidth={2.5} />
-          セットを追加
+          追加
         </button>
         <button
           onClick={() => setOpen(v => !v)}
