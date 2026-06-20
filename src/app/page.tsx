@@ -49,7 +49,7 @@ export default function Home() {
   const recentSessions = mockSessions.slice(0, 3)
 
   return (
-    <div className="min-h-screen pb-24 max-w-md mx-auto">
+    <div className="app-page">
       <div className="px-4 pt-8 pb-4 flex items-start justify-between">
         <div>
           <p className="text-xs text-gray-500 mb-1">{todayStr}</p>

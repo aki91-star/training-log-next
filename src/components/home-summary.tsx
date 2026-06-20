@@ -214,11 +214,11 @@ export default function HomeSummary({ today = new Date() }: { today?: Date }) {
 
       {dayPicker && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60"
+          className="app-modal-overlay"
           onClick={() => setDayPicker(null)}
         >
           <div
-            className="w-full max-w-md bg-[#1a1a1a] border-t border-white/10 rounded-t-2xl p-4 pb-8"
+            className="app-modal-sheet bg-[#1a1a1a] border-t border-white/10 rounded-t-2xl p-4 pb-[max(2rem,env(safe-area-inset-bottom,0px))]"
             onClick={e => e.stopPropagation()}
           >
             <p className="text-xs text-gray-500 mb-3">この日のセッション</p>

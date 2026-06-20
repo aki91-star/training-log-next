@@ -33,7 +33,7 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<Session | null>(null)
 
   return (
-    <div className="min-h-screen pb-24 max-w-md mx-auto">
+    <div className="app-page">
       <div className="sticky top-0 z-40 bg-[#111111]/95 backdrop-blur-sm border-b border-white/10 flex items-center h-12 px-4">
         <h1 className="text-sm font-semibold">履歴</h1>
       </div>

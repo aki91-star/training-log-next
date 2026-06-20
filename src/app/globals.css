@@ -117,14 +117,77 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+:root {
+  --app-max-width: 430px;
+  --app-gutter: clamp(0.75rem, 4vw, 1rem);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply font-sans;
+    background-color: #0a0a0a;
+  }
   body {
     @apply bg-background text-foreground;
   }
-  html {
-    @apply font-sans;
+}
+
+@layer components {
+  .app-shell {
+    width: 100%;
+    max-width: var(--app-max-width);
+    min-height: 100dvh;
+    margin-inline: auto;
+    position: relative;
+    background-color: #111111;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  @media (min-width: 431px) {
+    .app-shell {
+      box-shadow:
+        0 0 0 1px rgb(255 255 255 / 0.06),
+        0 24px 48px -12px rgb(0 0 0 / 0.6);
+    }
+  }
+
+  .app-page {
+    min-height: 100dvh;
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-page-session {
+    min-height: 100dvh;
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-fixed-bottom {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: var(--app-max-width);
+    z-index: 50;
+  }
+
+  .app-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background-color: rgb(0 0 0 / 0.6);
+  }
+
+  .app-modal-sheet {
+    width: 100%;
+    max-width: var(--app-max-width);
   }
 }

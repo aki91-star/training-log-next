@@ -32,7 +32,7 @@ export default function SessionDetailSheet({
               <p className="text-xs text-gray-500">{formatDateJP(session.date)}</p>
               <SheetTitle className="text-white text-left">{session.name}</SheetTitle>
             </SheetHeader>
-            <div className="p-4 space-y-4 pb-6">
+            <div className="p-4 space-y-4 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
               {session.blocks.map((block, idx) => (
                 <div key={block.id}>
                   <div className="flex items-center gap-2 mb-2">

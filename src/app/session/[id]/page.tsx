@@ -461,7 +461,7 @@ export default function SessionPage() {
   const progressPct = totalCount ? (completedCount / totalCount) * 100 : 0
 
   return (
-    <div className="min-h-screen pb-32">
+    <div className="app-page-session">
       {/* ヘッダー */}
       <div className="sticky top-0 z-40 bg-[#111111]/95 backdrop-blur-sm border-b border-white/10">
         <div className="flex items-center h-12 px-2">
@@ -549,7 +549,7 @@ export default function SessionPage() {
       </div>
 
       {/* 完了ボタン */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md px-4 pb-6 pt-3 bg-gradient-to-t from-[#111111] to-transparent">
+      <div className="app-fixed-bottom px-4 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-3 bg-gradient-to-t from-[#111111] to-transparent">
         <button onClick={() => router.push('/')}
           className="w-full bg-[#1a1a1a] border border-white/15 font-bold py-4 rounded-2xl hover:bg-[#222] transition-colors">
           セッションを完了
