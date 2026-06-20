@@ -373,6 +373,88 @@ export const mockSessions: Session[] = [
       },
     ],
   },
+  {
+    id: 'session-004',
+    date: '2026-06-12',
+    name: '肩・アーム',
+    status: 'completed',
+    blocks: [{
+      id: 'block-007', type: '単体', order: 1,
+      rows: [{
+        id: 'row-017', exerciseId: 'ex-006', exerciseName: 'ショルダープレス',
+        round: 1, order: 1, status: 'completed',
+        metrics: { weight: 45, reps: 10, rpe: 7 },
+      }],
+    }],
+  },
+  {
+    id: 'session-005',
+    date: '2026-06-09',
+    name: '背中',
+    status: 'completed',
+    blocks: [{
+      id: 'block-008', type: '単体', order: 1,
+      rows: [{
+        id: 'row-018', exerciseId: 'ex-004', exerciseName: 'ラットプルダウン',
+        round: 1, order: 1, status: 'completed',
+        metrics: { weight: 55, reps: 10, rpe: 7 },
+      }, {
+        id: 'row-019', exerciseId: 'ex-004', exerciseName: 'ラットプルダウン',
+        round: 2, order: 2, status: 'completed',
+        metrics: { weight: 55, reps: 9, rpe: 8 },
+      }],
+    }],
+  },
+  {
+    id: 'session-006',
+    date: '2026-06-06',
+    name: '脚',
+    status: 'completed',
+    blocks: [{
+      id: 'block-009', type: '単体', order: 1,
+      rows: [{
+        id: 'row-020', exerciseId: 'ex-005', exerciseName: 'バックスクワット',
+        round: 1, order: 1, status: 'completed',
+        metrics: { weight: 90, reps: 6, rpe: 8 },
+      }, {
+        id: 'row-021', exerciseId: 'ex-005', exerciseName: 'バックスクワット',
+        round: 2, order: 2, status: 'completed',
+        metrics: { weight: 90, reps: 6, rpe: 8.5 },
+      }],
+    }],
+  },
+  {
+    id: 'session-007',
+    date: '2026-06-04',
+    name: 'イージーラン',
+    status: 'completed',
+    blocks: [{
+      id: 'block-010', type: '単体', order: 1,
+      rows: [{
+        id: 'row-022', exerciseId: 'ex-007', exerciseName: 'ロードラン',
+        round: 1, order: 1, status: 'completed',
+        metrics: { distance: 3000, time: 1080, rpe: 5 },
+      }],
+    }],
+  },
+  {
+    id: 'session-008',
+    date: '2026-06-02',
+    name: '胸',
+    status: 'completed',
+    blocks: [{
+      id: 'block-011', type: '単体', order: 1,
+      rows: [{
+        id: 'row-023', exerciseId: 'ex-001', exerciseName: 'ベンチプレス',
+        round: 1, order: 1, status: 'completed',
+        metrics: { weight: 75, reps: 6, rpe: 7 },
+      }, {
+        id: 'row-024', exerciseId: 'ex-001', exerciseName: 'ベンチプレス',
+        round: 2, order: 2, status: 'completed',
+        metrics: { weight: 75, reps: 6, rpe: 7.5 },
+      }],
+    }],
+  },
 ]
 
 // ===== ユーティリティ =====
@@ -398,4 +480,101 @@ export function formatDistance(meters: number): string {
 /** セッション内の完了セット数を合計 */
 export function countCompletedRows(session: Session): number {
   return session.blocks.flatMap(b => b.rows).filter(r => r.status === 'completed').length
+}
+
+export const MONTHLY_GOAL_DAYS = 14
+
+const CARDIO_NAMES = ['ロードラン', 'トレッドミルラン']
+
+export function isCardioExercise(name: string): boolean {
+  return CARDIO_NAMES.some(n => name.includes(n))
+}
+
+export function isHyroxExercise(name: string): boolean {
+  return name.startsWith('HYROX')
+}
+
+export function getCompletedRows(session: Session): ExerciseRow[] {
+  return session.blocks.flatMap(b => b.rows).filter(r => r.status === 'completed')
+}
+
+/** 総負荷量（トン）= Σ(重量kg × 回数) / 1000 */
+export function calcTonnage(session: Session): number {
+  return getCompletedRows(session).reduce((sum, r) => {
+    const { weight, reps } = r.metrics
+    if (weight && reps) return sum + weight * reps
+    return sum
+  }, 0) / 1000
+}
+
+/** 有酸素距離（km） */
+export function calcCardioDistanceKm(session: Session): number {
+  return getCompletedRows(session).reduce((sum, r) => {
+    if (isCardioExercise(r.exerciseName) && r.metrics.distance) {
+      return sum + r.metrics.distance / 1000
+    }
+    return sum
+  }, 0)
+}
+
+export function sessionHasHyrox(session: Session): boolean {
+  return getCompletedRows(session).some(r => isHyroxExercise(r.exerciseName))
+}
+
+export function getWeekRange(date: Date): { start: Date; end: Date } {
+  const d = new Date(date)
+  const start = new Date(d)
+  start.setDate(d.getDate() - d.getDay())
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  end.setHours(23, 59, 59, 999)
+  return { start, end }
+}
+
+export function isDateInRange(dateStr: string, start: Date, end: Date): boolean {
+  const d = new Date(`${dateStr}T12:00:00`)
+  return d >= start && d <= end
+}
+
+export interface WeekStats {
+  sets: number
+  tonnage: number
+  cardioKm: number
+  hyroxCount: number
+}
+
+export function aggregateWeekStats(sessions: Session[]): WeekStats {
+  return {
+    sets: sessions.reduce((s, sess) => s + countCompletedRows(sess), 0),
+    tonnage: sessions.reduce((s, sess) => s + calcTonnage(sess), 0),
+    cardioKm: sessions.reduce((s, sess) => s + calcCardioDistanceKm(sess), 0),
+    hyroxCount: sessions.filter(sessionHasHyrox).length,
+  }
+}
+
+export function getSessionsInWeek(sessions: Session[], refDate: Date, offsetWeeks = 0): Session[] {
+  const { start, end } = getWeekRange(refDate)
+  if (offsetWeeks !== 0) {
+    start.setDate(start.getDate() + offsetWeeks * 7)
+    end.setDate(end.getDate() + offsetWeeks * 7)
+  }
+  return sessions.filter(s => isDateInRange(s.date, start, end))
+}
+
+export function getUniqueTrainingDatesInMonth(
+  sessions: Session[],
+  year: number,
+  month: number,
+): Set<string> {
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`
+  const dates = new Set<string>()
+  sessions.forEach(s => {
+    if (s.date.startsWith(prefix)) dates.add(s.date)
+  })
+  return dates
+}
+
+export function getSessionsOnDate(sessions: Session[], dateStr: string): Session[] {
+  return sessions.filter(s => s.date === dateStr)
 }

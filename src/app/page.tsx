@@ -1,7 +1,11 @@
 import Link from 'next/link'
 import { Plus, ChevronRight, Dumbbell, Wind, Zap } from 'lucide-react'
-import { mockSessions, countCompletedRows, type Session, type MainCategory } from '@/lib/data'
+import {
+  mockSessions, countCompletedRows, calcTonnage, calcCardioDistanceKm,
+  type Session, type MainCategory,
+} from '@/lib/data'
 import BottomNav from '@/components/bottom-nav'
+import HomeSummary from '@/components/home-summary'
 
 const categoryIcon: Record<MainCategory, React.ReactNode> = {
   筋トレ:         <Dumbbell size={13} />,
@@ -22,11 +26,21 @@ function detectCategories(session: Session): MainCategory[] {
 }
 
 function formatDate(dateStr: string) {
-  const d = new Date(dateStr)
+  const d = new Date(`${dateStr}T12:00:00`)
   return {
     md:  `${d.getMonth() + 1}/${d.getDate()}`,
     day: '日月火水木金土'[d.getDay()],
   }
+}
+
+function sessionStats(session: Session): string[] {
+  const stats: string[] = []
+  const tonnage = calcTonnage(session)
+  const cardio = calcCardioDistanceKm(session)
+  if (tonnage > 0) stats.push(`総負荷 ${tonnage.toFixed(1)}t`)
+  if (cardio > 0) stats.push(`ラン ${cardio.toFixed(1)}km`)
+  if (stats.length === 0) stats.push('PBなし')
+  return stats
 }
 
 export default function Home() {
@@ -35,11 +49,19 @@ export default function Home() {
   const recentSessions = mockSessions.slice(0, 3)
 
   return (
-    <div className="min-h-screen pb-24">
-      <div className="px-4 pt-8 pb-6">
-        <p className="text-xs text-gray-500 mb-1">{todayStr}</p>
-        <h1 className="text-2xl font-bold tracking-tight">Training Log</h1>
+    <div className="min-h-screen pb-24 max-w-md mx-auto">
+      <div className="px-4 pt-8 pb-4 flex items-start justify-between">
+        <div>
+          <p className="text-xs text-gray-500 mb-1">{todayStr}</p>
+          <h1 className="text-2xl font-bold tracking-tight">Training Log</h1>
+          <p className="text-xs text-gray-500 mt-1">今月の積み上げが、明日の自分をつくる</p>
+        </div>
+        <div className="w-9 h-9 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center text-sm font-bold text-gray-400 shrink-0">
+          N
+        </div>
       </div>
+
+      <HomeSummary />
 
       <div className="px-4 mb-8">
         <Link
@@ -52,14 +74,20 @@ export default function Home() {
       </div>
 
       <div className="px-4">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          最近のセッション
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
+            最近のセッション
+          </h2>
+          <Link href="/history" className="text-xs text-gray-500 hover:text-orange-400 transition-colors">
+            すべて見る &gt;
+          </Link>
+        </div>
         <div className="space-y-2">
           {recentSessions.map(session => {
             const { md, day } = formatDate(session.date)
             const categories = detectCategories(session)
             const sets = countCompletedRows(session)
+            const stats = sessionStats(session)
 
             return (
               <Link
@@ -71,7 +99,7 @@ export default function Home() {
                   <span className="text-xs font-bold text-orange-400 leading-none block">{md}</span>
                   <span className="text-[10px] text-gray-500">({day})</span>
                 </div>
-                <div className="w-px h-8 bg-white/10 shrink-0" />
+                <div className="w-px h-10 bg-white/10 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{session.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
@@ -84,6 +112,11 @@ export default function Home() {
                       ))}
                     </div>
                   </div>
+                </div>
+                <div className="text-right shrink-0">
+                  {stats.map(s => (
+                    <p key={s} className="text-[10px] text-gray-500 leading-snug">{s}</p>
+                  ))}
                 </div>
                 <ChevronRight size={16} className="text-gray-600 shrink-0" />
               </Link>
