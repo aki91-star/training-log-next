@@ -37,6 +37,16 @@ export interface WorkBlock {
   rows: ExerciseRow[]
 }
 
+/** 新規セッション用のデフォルトブロック（単体・空） */
+export function createDefaultBlock(order = 1): WorkBlock {
+  return {
+    id: `block-${Date.now()}`,
+    type: '単体',
+    order,
+    rows: [],
+  }
+}
+
 export interface Session {
   id: string
   date: string       // YYYY-MM-DD
@@ -44,6 +54,8 @@ export interface Session {
   note?: string
   status: 'active' | 'completed'
   blocks: WorkBlock[]
+  plannedMenu?: import('@/lib/workout-types').LapStep[]
+  linkedTimerRunId?: string
 }
 
 export interface ExerciseMaster {
@@ -477,9 +489,27 @@ export function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`
 }
 
+/** メトリクスがセット完了条件を満たすか */
+export function isMetricsComplete(metrics: Metric): boolean {
+  if (metrics.weight && metrics.reps) return true
+  if (metrics.distance) return true
+  if (metrics.time) return true
+  return false
+}
+
+/** セット行が完了扱いか（メトリクスまたは status） */
+export function isRowCompleted(row: ExerciseRow): boolean {
+  return row.status === 'completed' || isMetricsComplete(row.metrics)
+}
+
+/** メトリクスから保存用 status を導出 */
+export function deriveRowStatus(metrics: Metric): RowStatus {
+  return isMetricsComplete(metrics) ? 'completed' : 'draft'
+}
+
 /** セッション内の完了セット数を合計 */
 export function countCompletedRows(session: Session): number {
-  return session.blocks.flatMap(b => b.rows).filter(r => r.status === 'completed').length
+  return session.blocks.flatMap(b => b.rows).filter(isRowCompleted).length
 }
 
 export const MONTHLY_GOAL_DAYS = 14
@@ -495,7 +525,7 @@ export function isHyroxExercise(name: string): boolean {
 }
 
 export function getCompletedRows(session: Session): ExerciseRow[] {
-  return session.blocks.flatMap(b => b.rows).filter(r => r.status === 'completed')
+  return session.blocks.flatMap(b => b.rows).filter(isRowCompleted)
 }
 
 /** 総負荷量（トン）= Σ(重量kg × 回数) / 1000 */

@@ -52,27 +52,37 @@ function StatCard({
   )
 }
 
-export default function HomeSummary({ today = new Date() }: { today?: Date }) {
+export default function HomeSummary({
+  today = new Date(),
+  compact = false,
+  sessions: sessionsProp,
+}: {
+  today?: Date
+  compact?: boolean
+  sessions?: import('@/lib/data').Session[]
+}) {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [dayPicker, setDayPicker] = useState<Session[] | null>(null)
 
   const year = today.getFullYear()
   const month = today.getMonth()
 
+  const sessions = sessionsProp ?? mockSessions
+
   const trainingDates = useMemo(
-    () => getUniqueTrainingDatesInMonth(mockSessions, year, month),
-    [year, month],
+    () => getUniqueTrainingDatesInMonth(sessions, year, month),
+    [sessions, year, month],
   )
 
   const monthDayCount = trainingDates.size
 
   const thisWeekStats = useMemo(
-    () => aggregateWeekStats(getSessionsInWeek(mockSessions, today, 0)),
-    [today],
+    () => aggregateWeekStats(getSessionsInWeek(sessions, today, 0)),
+    [sessions, today],
   )
   const lastWeekStats = useMemo(
-    () => aggregateWeekStats(getSessionsInWeek(mockSessions, today, -1)),
-    [today],
+    () => aggregateWeekStats(getSessionsInWeek(sessions, today, -1)),
+    [sessions, today],
   )
 
   const calendarCells = useMemo(() => {
@@ -91,12 +101,12 @@ export default function HomeSummary({ today = new Date() }: { today?: Date }) {
 
   function handleDayClick(day: number) {
     const dateStr = dateStrFromDay(day)
-    const sessions = getSessionsOnDate(mockSessions, dateStr)
-    if (sessions.length === 0) return
-    if (sessions.length === 1) {
-      setSelectedSession(sessions[0])
+    const sessionsOnDay = getSessionsOnDate(sessions, dateStr)
+    if (sessionsOnDay.length === 0) return
+    if (sessionsOnDay.length === 1) {
+      setSelectedSession(sessionsOnDay[0])
     } else {
-      setDayPicker(sessions)
+      setDayPicker(sessionsOnDay)
     }
   }
 
@@ -104,7 +114,7 @@ export default function HomeSummary({ today = new Date() }: { today?: Date }) {
 
   return (
     <>
-      <div className="px-4 space-y-4 mb-6">
+      <div className={`${compact ? 'px-3 lg:px-3' : 'px-4'} space-y-4 mb-6`}>
         {/* カレンダー */}
         <div className="bg-[#1a1a1a] border border-white/8 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-4">

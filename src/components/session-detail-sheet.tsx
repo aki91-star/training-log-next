@@ -5,7 +5,7 @@ import { TrendingUp, Pencil } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import {
-  calcEstimatedRM, formatTime, formatDistance,
+  calcEstimatedRM, formatTime, formatDistance, isRowCompleted,
   type Session,
 } from '@/lib/data'
 
@@ -43,18 +43,19 @@ export default function SessionDetailSheet({
                   </div>
                   <div className="space-y-1.5 pl-2 border-l border-white/8">
                     {block.rows.map(row => {
+                      const completed = isRowCompleted(row)
                       const estRM = row.metrics.weight && row.metrics.reps
                         ? calcEstimatedRM(row.metrics.weight, row.metrics.reps) : null
                       return (
                         <div
                           key={row.id}
                           className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
-                            row.status === 'completed' ? 'bg-[#1f2a1f]' : 'bg-[#1e1e1e] opacity-60'
+                            completed ? 'bg-[#1f2a1f]' : 'bg-[#1e1e1e] opacity-60'
                           }`}
                         >
                           <div className="flex-1 min-w-0">
                             <span className="font-medium text-xs">{row.exerciseName}</span>
-                            {row.status === 'draft' && (
+                            {!completed && (
                               <span className="ml-2 text-[10px] text-yellow-500">下書き</span>
                             )}
                           </div>
