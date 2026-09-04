@@ -1,12 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Download, Upload, Info, ChevronRight, Check, Trash2, Copy } from 'lucide-react'
-import { exerciseMaster, isRowCompleted } from '@/lib/data'
+import { Download, Upload, Info, ChevronRight, Check, ListChecks, Dumbbell } from 'lucide-react'
+import { isRowCompleted } from '@/lib/data'
 import { APP_NAME, APP_SHORT_NAME } from '@/lib/app-config'
 import AuthSection from '@/components/auth-section'
 import PwaInstallPrompt from '@/components/pwa-install-prompt'
-import { useWorkoutStore, HYROX_OFFICIAL_MENU_ID } from '@/lib/workout-store'
+import MenuManagementView from '@/components/panes/menu-management-view'
+import ExerciseManagementView from '@/components/panes/exercise-management-view'
+import { useWorkoutStore } from '@/lib/workout-store'
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -38,28 +40,70 @@ function SettingRow({
   )
 }
 
-export default function SettingsPane() {
+export type SettingsSubMode = 'main' | 'menus' | 'exercises'
+
+export default function SettingsPane({
+  onSubModeChange,
+}: {
+  onSubModeChange?: (mode: SettingsSubMode) => void
+}) {
   const [exportDone, setExportDone] = useState(false)
   const [importDone, setImportDone] = useState(false)
-  const [monthlyGoal, setMonthlyGoal] = useState('14')
+  const [subMode, setSubMode] = useState<SettingsSubMode>('main')
   const {
     sessions,
     menuTemplates,
+    exercises,
     activeRun,
-    deleteMenuTemplate,
-    duplicateMenuTemplate,
+    monthlyGoalDays,
+    setMonthlyGoalDays,
   } = useWorkoutStore()
+
+  function enterMenuManagement() {
+    setSubMode('menus')
+    onSubModeChange?.('menus')
+  }
+
+  function enterExerciseManagement() {
+    setSubMode('exercises')
+    onSubModeChange?.('exercises')
+  }
+
+  function exitSubMode() {
+    setSubMode('main')
+    onSubModeChange?.('main')
+  }
+
+  if (subMode === 'menus') {
+    return <MenuManagementView onBack={exitSubMode} />
+  }
+
+  if (subMode === 'exercises') {
+    return <ExerciseManagementView onBack={exitSubMode} />
+  }
 
   // Note: import would need store setters exposed — using window reload after localStorage write
   function handleImportData(data: {
     sessions?: typeof sessions
     menuTemplates?: typeof menuTemplates
+    exerciseMaster?: typeof exercises
+    preferences?: { monthlyGoalDays?: number; exercises?: typeof exercises }
   }) {
     if (data.sessions) {
       localStorage.setItem('training-log:sessions', JSON.stringify(data.sessions))
     }
     if (data.menuTemplates) {
       localStorage.setItem('training-log:menu-templates', JSON.stringify(data.menuTemplates))
+    }
+    const importedExercises = data.exerciseMaster ?? data.preferences?.exercises
+    if (importedExercises) {
+      localStorage.setItem('training-log:exercises', JSON.stringify(importedExercises))
+    }
+    if (typeof data.preferences?.monthlyGoalDays === 'number') {
+      localStorage.setItem(
+        'training-log:monthly-goal-days',
+        JSON.stringify(data.preferences.monthlyGoalDays),
+      )
     }
     window.location.reload()
   }
@@ -68,10 +112,11 @@ export default function SettingsPane() {
     const data = {
       schemaVersion: '1.1.0',
       appMeta: { name: APP_SHORT_NAME, exportedAt: new Date().toISOString() },
-      exerciseMaster,
+      exerciseMaster: exercises,
       sessions,
       menuTemplates,
       activeRun,
+      preferences: { monthlyGoalDays, exercises },
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -136,24 +181,20 @@ export default function SettingsPane() {
       </div>
 
       <div>
-        <SectionTitle>保存済みメニュー</SectionTitle>
-        <div className="space-y-2">
-          {menuTemplates.map(t => (
-            <div key={t.id} className="flex items-center gap-2 bg-[#1a1a1a] border border-white/8 rounded-xl px-3 py-2.5">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm truncate">{t.name}</p>
-                <p className="text-[10px] text-gray-500">{t.steps.length} ステップ</p>
-              </div>
-              <button type="button" onClick={() => duplicateMenuTemplate(t.id)} className="p-1.5 text-gray-500 hover:text-orange-400" title="複製">
-                <Copy size={14} />
-              </button>
-              {t.id !== HYROX_OFFICIAL_MENU_ID && (
-                <button type="button" onClick={() => deleteMenuTemplate(t.id)} className="p-1.5 text-gray-500 hover:text-red-400" title="削除">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))}
+        <SectionTitle>トレーニング管理</SectionTitle>
+        <div className="divide-y divide-white/5 rounded-xl overflow-hidden border border-white/8">
+          <SettingRow
+            icon={<Dumbbell size={18} />}
+            label="種目管理"
+            sublabel={`${exercises.length} 件 · ベンチプレス等の名前変更`}
+            onClick={enterExerciseManagement}
+          />
+          <SettingRow
+            icon={<ListChecks size={18} />}
+            label="セットメニュー管理"
+            sublabel={`${menuTemplates.length} 件 · ラップ計測用テンプレート`}
+            onClick={enterMenuManagement}
+          />
         </div>
       </div>
 
@@ -166,12 +207,15 @@ export default function SettingsPane() {
               type="number"
               min={1}
               max={31}
-              value={monthlyGoal}
-              onChange={e => setMonthlyGoal(e.target.value)}
+              value={monthlyGoalDays}
+              onChange={e => {
+                const n = Number(e.target.value)
+                if (Number.isFinite(n)) setMonthlyGoalDays(n)
+              }}
               className="mt-1.5 w-full bg-[#252525] border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/40"
             />
           </label>
-          <p className="text-[11px] text-gray-600">※ 現状はUIのみ（永続化は今後対応）</p>
+          <p className="text-[11px] text-gray-600">履歴ペインの Goal 表示に反映されます</p>
         </div>
       </div>
 

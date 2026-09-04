@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ArrowLeft, Trash2, Search, X, ChevronDown, Play, Timer, ChevronRight } from 'lucide-react'
+import { Plus, ArrowLeft, Trash2, Search, X, Repeat2, ChevronDown } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -12,32 +12,31 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  mockSessions, exerciseMaster, calcEstimatedRM,
+  mockSessions, calcEstimatedRM,
   deriveRowStatus, isRowCompleted,
+  createExerciseMaster,
+  MAIN_CATEGORIES,
+  SUB_CATEGORIES,
   type ExerciseRow, type BlockType, type Session,
-  type ExerciseMaster, type MainCategory, type SubCategory,
+  type ExerciseMaster, type MainCategory, type SubCategory, type WorkBlock,
 } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
 import { cloneSteps, type LapStep } from '@/lib/workout-types'
-import MenuEditor from '@/components/menu-editor'
-import MenuPicker from '@/components/menu-picker'
-import { formatMs } from '@/lib/format-time'
+import LapMenuBar from '@/components/lap-menu-bar'
+import SessionStatusBar from '@/components/session-status-bar'
+import {
+  BLOCK_TYPE_CLS,
+  BLOCK_CONTAINER_CLS,
+  getExerciseLetter,
+  getExerciseOrder,
+  getMaxRound,
+  groupRowsByExercise,
+  groupRowsByRound,
+} from '@/lib/block-styles'
 
 // ===== 定数 =====
 
-const BLOCK_TYPE_CLS: Record<BlockType, string> = {
-  '単体':           'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  'スーパーセット': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-  'サーキット':     'bg-green-500/20 text-green-300 border-green-500/30',
-  'インターバル':   'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-}
 const BLOCK_TYPES: BlockType[] = ['単体', 'スーパーセット', 'サーキット', 'インターバル']
-const MAIN_CATS: MainCategory[] = ['筋トレ', '有酸素', 'ファンクショナル']
-const SUB_CATS: Record<MainCategory, SubCategory[]> = {
-  筋トレ:           ['胸', '背中', '肩', '脚', '腕', '腹筋'],
-  有酸素:           ['ラン', 'バイク', 'クロストレーナー', 'ステアクライマー'],
-  ファンクショナル: ['HYROX'],
-}
 
 function newSession(): Session {
   return {
@@ -200,6 +199,210 @@ function SetRow({
   )
 }
 
+// ===== SupersetRoundRow =====
+
+function SupersetRoundRow({
+  row,
+  letter,
+  prevRow,
+  onDelete,
+  onChange,
+}: {
+  row: ExerciseRow
+  letter: string
+  prevRow?: ExerciseRow
+  onDelete: () => void
+  onChange: (m: ExerciseRow['metrics']) => void
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const estRM = row.metrics.weight && row.metrics.reps
+    ? calcEstimatedRM(row.metrics.weight, row.metrics.reps) : null
+  const m = row.metrics
+
+  return (
+    <>
+      <div className="px-3 py-3 border-b border-purple-500/15 last:border-0">
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-purple-500/20 text-[11px] font-bold text-purple-300 border border-purple-500/30">
+            {letter}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-purple-100">{row.exerciseName}</span>
+          {prevRow && (
+            <button
+              onClick={() => onChange({ ...prevRow.metrics })}
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-purple-500/20 bg-purple-500/10 px-2 py-1 text-[10px] text-purple-300 transition-colors hover:bg-purple-500/20"
+            >
+              <ArrowLeft size={10} />
+              前ラウンド
+            </button>
+          )}
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="shrink-0 text-gray-600 transition-colors hover:text-red-400"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-6 gap-x-0.5 sm:gap-x-1 pl-8">
+          <MetricField label="重量" unit="kg"
+            value={m.weight?.toString() ?? ''}
+            onChange={v => onChange({ ...m, weight: v ? +v : undefined })} />
+          <MetricField label="回数" unit="回"
+            value={m.reps?.toString() ?? ''}
+            onChange={v => onChange({ ...m, reps: v ? +v : undefined })} />
+          <MetricField label="距離" unit="m"
+            value={m.distance?.toString() ?? ''}
+            onChange={v => onChange({ ...m, distance: v ? +v : undefined })} />
+          <MetricField label="時間" unit="秒"
+            value={m.time?.toString() ?? ''}
+            onChange={v => onChange({ ...m, time: v ? +v : undefined })} />
+          <MetricField label="RPE" unit="/10"
+            value={m.rpe?.toString() ?? ''}
+            onChange={v => onChange({ ...m, rpe: v ? +v : undefined })} />
+          <MetricField label="推定1RM" unit="kg"
+            readOnly
+            displayValue={estRM}
+            highlight={!!estRM} />
+        </div>
+
+        <div className="mt-2.5 flex items-center gap-2 pl-8">
+          <span className="shrink-0 text-[10px] text-gray-500">メモ</span>
+          <input
+            type="text"
+            value={m.note ?? ''}
+            onChange={e => onChange({ ...m, note: e.target.value })}
+            placeholder="メモ（任意）"
+            className="flex-1 rounded-lg border border-white/8 bg-[#252525] px-2.5 py-1 text-[11px] text-gray-300 placeholder-gray-600 outline-none focus:border-purple-500/40"
+          />
+        </div>
+      </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent className="bg-[#1e1e1e] border-white/10 text-white max-w-xs mx-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">種目を削除しますか？</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              このラウンドの {row.exerciseName} の記録が削除されます。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-white/5 border-white/10 text-white hover:bg-white/10">
+              キャンセル
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onDelete}
+              className="bg-red-500 hover:bg-red-400 text-white border-0"
+            >
+              削除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+// ===== SupersetBlockView =====
+
+function SupersetBlockView({
+  block,
+  onDelete,
+  onChange,
+  onAddRound,
+  onAddExercise,
+}: {
+  block: WorkBlock
+  onDelete: (id: string) => void
+  onChange: (id: string, m: ExerciseRow['metrics']) => void
+  onAddRound: () => void
+  onAddExercise: () => void
+}) {
+  const exerciseOrder = getExerciseOrder(block.rows)
+  const letterMap = Object.fromEntries(exerciseOrder.map((id, i) => [id, getExerciseLetter(i)]))
+  const rounds = groupRowsByRound(block.rows)
+  const groupMap = groupRowsByExercise(block.rows)
+
+  return (
+    <div className={`rounded-xl border overflow-hidden ${BLOCK_CONTAINER_CLS['スーパーセット'] ?? 'border-white/8'}`}>
+      <div className="flex items-start gap-2 border-b border-purple-500/20 bg-purple-500/10 px-3 py-2.5">
+        <Repeat2 size={14} className="mt-0.5 shrink-0 text-purple-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-purple-200">交互セット記録</p>
+          <p className="text-[10px] leading-snug text-purple-300/70">
+            ラウンドごとに全種目を順番に実施 · {exerciseOrder.length}種目 × {rounds.length || 0}ラウンド
+          </p>
+        </div>
+      </div>
+
+      {block.rows.length === 0 ? (
+        <button
+          type="button"
+          onClick={onAddExercise}
+          className="flex w-full items-center justify-center gap-2 border-b border-purple-500/15 py-5 text-sm text-purple-300 transition-colors hover:bg-purple-500/10"
+        >
+          <Plus size={16} /> 種目を追加して記録開始
+        </button>
+      ) : (
+        <>
+          {exerciseOrder.length === 1 && (
+            <div className="border-b border-purple-500/15 bg-purple-500/5 px-3 py-2">
+              <p className="text-[11px] text-purple-300/80">
+                もう1種目追加すると、ラウンド内で交互に記録できます
+              </p>
+            </div>
+          )}
+
+          {rounds.map(({ round, rows }) => {
+            const doneCount = rows.filter(isRowCompleted).length
+            return (
+              <div key={round} className="border-b border-purple-500/15 last:border-b-0">
+                <div className="flex items-center gap-2 bg-purple-500/[0.07] px-3 py-2">
+                  <span className="text-xs font-bold text-purple-300">ラウンド {round}</span>
+                  <span className="text-[10px] text-purple-400/70">{doneCount}/{rows.length} 完了</span>
+                </div>
+                <div>
+                  {rows.map(row => {
+                    const prevRoundRow = groupMap[row.exerciseId]?.find(r => r.round === round - 1)
+                    return (
+                      <SupersetRoundRow
+                        key={row.id}
+                        row={row}
+                        letter={letterMap[row.exerciseId]}
+                        prevRow={prevRoundRow}
+                        onDelete={() => onDelete(row.id)}
+                        onChange={m => onChange(row.id, m)}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="flex gap-2 border-t border-purple-500/20 bg-[#1a1a1a]/60 p-2.5">
+            <button
+              type="button"
+              onClick={onAddRound}
+              disabled={exerciseOrder.length === 0}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/15 py-2.5 text-xs font-semibold text-purple-200 transition-colors hover:bg-purple-500/25 disabled:opacity-40 min-h-10"
+            >
+              <Repeat2 size={13} /> ラウンドを追加
+            </button>
+            <button
+              type="button"
+              onClick={onAddExercise}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-dashed border-purple-500/30 py-2.5 text-xs text-purple-300/80 transition-colors hover:border-purple-500/50 hover:text-purple-200 min-h-10"
+            >
+              <Plus size={13} /> 種目を追加
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ===== ExerciseGroup =====
 
 function ExerciseGroup({
@@ -266,6 +469,7 @@ function ExerciseGroup({
 function ExercisePicker({ open, onSelect, onClose }: {
   open: boolean; onSelect: (ex: ExerciseMaster) => void; onClose: () => void
 }) {
+  const { exercises, saveExercise } = useWorkoutStore()
   const [selectedMain, setSelectedMain] = useState<MainCategory | null>(null)
   const [selectedSub, setSelectedSub] = useState<SubCategory | null>(null)
   const [query, setQuery] = useState('')
@@ -273,7 +477,7 @@ function ExercisePicker({ open, onSelect, onClose }: {
   const [newName, setNewName] = useState('')
   const [newMain, setNewMain] = useState<MainCategory>('筋トレ')
 
-  const filtered = exerciseMaster.filter(ex => {
+  const filtered = exercises.filter(ex => {
     if (query) return ex.name.toLowerCase().includes(query.toLowerCase())
     if (selectedSub) return ex.subCategory === selectedSub
     if (selectedMain) return ex.mainCategory === selectedMain
@@ -282,12 +486,9 @@ function ExercisePicker({ open, onSelect, onClose }: {
 
   function handleCreate() {
     if (!newName.trim()) return
-    onSelect({
-      id: `ex-custom-${Date.now()}`, name: newName.trim(),
-      mainCategory: newMain, subCategory: SUB_CATS[newMain][0],
-      metrics: ['weight', 'reps', 'note'],
-      completionCondition: ['weight', 'reps'], progressMetric: 'estimatedRM',
-    })
+    const created = createExerciseMaster(newName.trim(), newMain, SUB_CATEGORIES[newMain][0])
+    saveExercise(created)
+    onSelect(created)
     setNewName(''); setShowCreate(false)
   }
 
@@ -316,7 +517,7 @@ function ExercisePicker({ open, onSelect, onClose }: {
               placeholder="種目名を入力"
               className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 outline-none mb-2" />
             <div className="flex gap-1.5 mb-2">
-              {MAIN_CATS.map(cat => (
+              {MAIN_CATEGORIES.map(cat => (
                 <button key={cat} onClick={() => setNewMain(cat)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${newMain === cat ? 'bg-orange-500 text-white' : 'bg-white/5 text-gray-400'}`}>
                   {cat}
@@ -333,7 +534,7 @@ function ExercisePicker({ open, onSelect, onClose }: {
         {!query && (
           <div className="px-4 shrink-0">
             <div className="flex gap-1.5 mb-2">
-              {MAIN_CATS.map(cat => (
+              {MAIN_CATEGORIES.map(cat => (
                 <button key={cat}
                   onClick={() => { setSelectedMain(selectedMain === cat ? null : cat); setSelectedSub(null) }}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedMain === cat ? 'bg-orange-500 text-white' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
@@ -343,7 +544,7 @@ function ExercisePicker({ open, onSelect, onClose }: {
             </div>
             {selectedMain && (
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {SUB_CATS[selectedMain].map(sub => (
+                {SUB_CATEGORIES[selectedMain].map(sub => (
                   <button key={sub} onClick={() => setSelectedSub(selectedSub === sub ? null : sub)}
                     className={`px-2.5 py-1 rounded-full text-xs transition-colors ${selectedSub === sub ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
                     {sub}
@@ -411,10 +612,6 @@ export default function SessionEditor({
   const [session, setSessionLocal] = useState<Session>(
     storeSession ?? newSession(),
   )
-  const [showMenuPicker, setShowMenuPicker] = useState(false)
-  const [menuSectionOpen, setMenuSectionOpen] = useState(
-    () => (storeSession?.plannedMenu?.length ?? 0) > 0,
-  )
   const [menuSteps, setMenuSteps] = useState<LapStep[]>(
     storeSession?.plannedMenu ? cloneSteps(storeSession.plannedMenu) : [],
   )
@@ -427,10 +624,8 @@ export default function SessionEditor({
     setSessionLocal(s)
     if (s.plannedMenu?.length) {
       setMenuSteps(cloneSteps(s.plannedMenu))
-      setMenuSectionOpen(true)
     } else {
       setMenuSteps([])
-      setMenuSectionOpen(false)
     }
   }, [sessionId, sessions, getSession, ensureSession])
 
@@ -445,9 +640,6 @@ export default function SessionEditor({
   const linkedRun = activeRun?.sessionId === sessionId ? activeRun : null
   const isMeasuring = !!linkedRun && (linkedRun.status === 'running' || linkedRun.status === 'paused')
 
-  useEffect(() => {
-    if (isMeasuring) setMenuSectionOpen(false)
-  }, [isMeasuring])
   function handleMenuChange(steps: LapStep[]) {
     setMenuSteps(steps)
     syncMenuToSession(sessionId, steps)
@@ -460,13 +652,16 @@ export default function SessionEditor({
     onStartTimer?.()
   }
 
-  const menuSummary = useMemo(
-    () => menuSteps.map((s, i) => `${i + 1}. ${s.label}`).join(' → '),
-    [menuSteps],
-  )
-
   const [pickerForBlock, setPickerForBlock] = useState<string | null>(null)
   const [showBlockPicker, setShowBlockPicker] = useState(false)
+  const [blockPickerBlockId, setBlockPickerBlockId] = useState<string | null>(null)
+  const autoOpenedBlockPicker = useRef(false)
+
+  useEffect(() => {
+    if (autoOpenedBlockPicker.current || session.blocks.length > 0) return
+    autoOpenedBlockPicker.current = true
+    setShowBlockPicker(true)
+  }, [session.blocks.length])
 
   // ===== ハンドラ =====
 
@@ -519,16 +714,74 @@ export default function SessionEditor({
       blocks: prev.blocks.map(b => {
         if (b.id !== blockId) return b
         const sameEx = b.rows.filter(r => r.exerciseId === ex.id)
+        if (sameEx.length > 0) {
+          const newRow: ExerciseRow = {
+            id: `row-new-${Date.now()}`,
+            exerciseId: ex.id, exerciseName: ex.name,
+            round: sameEx.length + 1, order: b.rows.length + 1,
+            status: 'draft', metrics: {},
+          }
+          return { ...b, rows: [...b.rows, newRow] }
+        }
+
+        if (b.type === 'スーパーセット') {
+          const maxRound = getMaxRound(b.rows)
+          const roundsToAdd = maxRound > 0 ? maxRound : 1
+          const baseOrder = b.rows.length
+          const newRows: ExerciseRow[] = Array.from({ length: roundsToAdd }, (_, i) => ({
+            id: `row-new-${Date.now()}-${i}`,
+            exerciseId: ex.id,
+            exerciseName: ex.name,
+            round: i + 1,
+            order: baseOrder + i + 1,
+            status: 'draft',
+            metrics: {},
+          }))
+          return { ...b, rows: [...b.rows, ...newRows] }
+        }
+
         const newRow: ExerciseRow = {
           id: `row-new-${Date.now()}`,
           exerciseId: ex.id, exerciseName: ex.name,
-          round: sameEx.length + 1, order: b.rows.length + 1,
+          round: 1, order: b.rows.length + 1,
           status: 'draft', metrics: {},
         }
         return { ...b, rows: [...b.rows, newRow] }
       }),
     }))
     setPickerForBlock(null)
+  }
+
+  function addSupersetRound(blockId: string) {
+    setSession(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.id !== blockId || b.type !== 'スーパーセット') return b
+        const exerciseOrder = getExerciseOrder(b.rows)
+        if (exerciseOrder.length === 0) return b
+
+        const groupMap = groupRowsByExercise(b.rows)
+        const maxRound = getMaxRound(b.rows)
+        const newRound = maxRound + 1
+        const baseOrder = b.rows.length
+
+        const newRows: ExerciseRow[] = exerciseOrder.map((exId, i) => {
+          const exRows = groupMap[exId]
+          const last = exRows[exRows.length - 1]
+          return {
+            id: `row-round-${Date.now()}-${i}`,
+            exerciseId: exId,
+            exerciseName: last.exerciseName,
+            round: newRound,
+            order: baseOrder + i + 1,
+            status: deriveRowStatus(last.metrics),
+            metrics: { ...last.metrics },
+          }
+        })
+
+        return { ...b, rows: [...b.rows, ...newRows] }
+      }),
+    }))
   }
 
   function addBlock(type: BlockType) {
@@ -539,7 +792,37 @@ export default function SessionEditor({
         order: prev.blocks.length + 1, rows: [],
       }],
     }))
+    closeBlockPicker()
+  }
+
+  function changeBlockType(blockId: string, type: BlockType) {
+    setSession(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b =>
+        b.id === blockId && b.rows.length === 0 ? { ...b, type } : b,
+      ),
+    }))
+    closeBlockPicker()
+  }
+
+  function openBlockPickerForAdd() {
+    setBlockPickerBlockId(null)
+    setShowBlockPicker(true)
+  }
+
+  function openBlockPickerForChange(blockId: string) {
+    setBlockPickerBlockId(blockId)
+    setShowBlockPicker(true)
+  }
+
+  function closeBlockPicker() {
     setShowBlockPicker(false)
+    setBlockPickerBlockId(null)
+  }
+
+  function handleBlockTypeSelect(type: BlockType) {
+    if (blockPickerBlockId) changeBlockType(blockPickerBlockId, type)
+    else addBlock(type)
   }
 
   // ===== 集計 =====
@@ -589,26 +872,22 @@ export default function SessionEditor({
         )}
 
         {isMeasuring && linkedRun && (
-          <button
-            type="button"
-            onClick={() => onStartTimer?.()}
-            className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/15 px-3 py-2.5 text-left transition-colors hover:bg-orange-500/25 min-h-11"
-          >
-            <Timer size={16} className="text-orange-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-orange-300">計測中</p>
-              <p className="text-sm text-white truncate">
-                {linkedRun.laps.length} / {linkedRun.steps.length} ラップ
-                <span className="text-gray-400 mx-1.5">·</span>
-                <span className="tabular-nums">{formatMs(linkedRun.elapsedMs)}</span>
-              </p>
-            </div>
-            <span className="flex items-center gap-0.5 text-xs text-orange-400 shrink-0">
-              タイマー <ChevronRight size={14} />
-            </span>
-          </button>
+          <SessionStatusBar
+            run={linkedRun}
+            variant="training"
+            onOpenTimer={onStartTimer}
+          />
         )}
       </div>
+
+      <LapMenuBar
+        steps={menuSteps}
+        onChange={handleMenuChange}
+        onStartTimer={handleStartTimerFromMenu}
+        isMeasuring={isMeasuring}
+        linkedTimerRunId={session.linkedTimerRunId}
+        defaultOpen={menuSteps.length === 0}
+      />
 
       <div className="px-4 pt-4 space-y-6 flex-1 pb-4">
         {/* 日付・ステータス */}
@@ -639,10 +918,11 @@ export default function SessionEditor({
         {session.blocks.length === 0 ? (
           <div className="flex flex-col items-center py-10 text-center">
             <Plus size={28} className="text-gray-700 mb-3" />
-            <p className="text-sm text-gray-500 mb-3">ブロックを追加して記録を始めましょう</p>
+            <p className="text-sm text-gray-500 mb-1">ブロックを追加して記録を始めましょう</p>
+            <p className="text-xs text-gray-600 mb-3">HYROX計測は上のラップメニューから</p>
             <button
               type="button"
-              onClick={() => setShowBlockPicker(true)}
+              onClick={openBlockPickerForAdd}
               className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold px-4 py-2.5 rounded-xl"
             >
               <Plus size={16} /> ブロックを追加
@@ -650,23 +930,47 @@ export default function SessionEditor({
           </div>
         ) : (
           session.blocks.map((block, idx) => {
-            const order: string[] = []
-            const groupMap: Record<string, ExerciseRow[]> = {}
-            block.rows.forEach(r => {
-              if (!groupMap[r.exerciseId]) { order.push(r.exerciseId); groupMap[r.exerciseId] = [] }
-              groupMap[r.exerciseId].push(r)
-            })
+            const order = getExerciseOrder(block.rows)
+            const groupMap = groupRowsByExercise(block.rows)
+            const isSuperset = block.type === 'スーパーセット'
 
             return (
               <div key={block.id} className="space-y-2">
                 <div className="flex items-center gap-2 px-0.5">
                   <span className="text-xs font-bold text-gray-600">Block {idx + 1}</span>
-                  <Badge variant="outline" className={`text-[10px] font-semibold border ${BLOCK_TYPE_CLS[block.type]}`}>
-                    {block.type}
-                  </Badge>
+                  {block.rows.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => openBlockPickerForChange(block.id)}
+                      className="inline-flex items-center gap-0.5 rounded-full transition-opacity hover:opacity-80"
+                      aria-label="ブロックの種類を変更"
+                    >
+                      <Badge variant="outline" className={`text-[10px] font-semibold border ${BLOCK_TYPE_CLS[block.type]}`}>
+                        {block.type}
+                      </Badge>
+                      <ChevronDown size={12} className="text-gray-500" />
+                    </button>
+                  ) : (
+                    <Badge variant="outline" className={`text-[10px] font-semibold border ${BLOCK_TYPE_CLS[block.type]}`}>
+                      {block.type}
+                    </Badge>
+                  )}
+                  {isSuperset && order.length > 0 && (
+                    <span className="text-[10px] text-purple-400/80">
+                      {order.length}種目 · {groupRowsByRound(block.rows).length}ラウンド
+                    </span>
+                  )}
                 </div>
 
-                {order.length === 0 ? (
+                {isSuperset ? (
+                  <SupersetBlockView
+                    block={block}
+                    onDelete={deleteRow}
+                    onChange={changeMetrics}
+                    onAddRound={() => addSupersetRound(block.id)}
+                    onAddExercise={() => setPickerForBlock(block.id)}
+                  />
+                ) : order.length === 0 ? (
                   <button
                     type="button"
                     onClick={() => setPickerForBlock(block.id)}
@@ -675,21 +979,20 @@ export default function SessionEditor({
                     <Plus size={16} /> 種目を追加して記録開始
                   </button>
                 ) : (
-                  order.map(exId => (
-                    <ExerciseGroup key={exId}
-                      exerciseName={groupMap[exId][0].exerciseName}
-                      rows={groupMap[exId]}
-                      onDelete={deleteRow}
-                      onChange={changeMetrics}
-                      onCopy={() => copySet(block.id, exId)} />
-                  ))
-                )}
-
-                {order.length > 0 && (
-                  <button type="button" onClick={() => setPickerForBlock(block.id)}
-                    className="w-full flex items-center justify-center gap-2 border border-dashed border-white/15 rounded-xl py-2.5 text-xs text-gray-600 hover:border-orange-500/40 hover:text-orange-400 transition-colors min-h-11">
-                    <Plus size={13} /> 種目を追加
-                  </button>
+                  <>
+                    {order.map(exId => (
+                      <ExerciseGroup key={exId}
+                        exerciseName={groupMap[exId][0].exerciseName}
+                        rows={groupMap[exId]}
+                        onDelete={deleteRow}
+                        onChange={changeMetrics}
+                        onCopy={() => copySet(block.id, exId)} />
+                    ))}
+                    <button type="button" onClick={() => setPickerForBlock(block.id)}
+                      className="w-full flex items-center justify-center gap-2 border border-dashed border-white/15 rounded-xl py-2.5 text-xs text-gray-600 hover:border-orange-500/40 hover:text-orange-400 transition-colors min-h-11">
+                      <Plus size={13} /> 種目を追加
+                    </button>
+                  </>
                 )}
               </div>
             )
@@ -697,74 +1000,12 @@ export default function SessionEditor({
         )}
 
         {session.blocks.length > 0 && (
-          <button type="button" onClick={() => setShowBlockPicker(true)}
+          <button type="button" onClick={openBlockPickerForAdd}
             className="w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-xl py-3 text-sm text-gray-500 hover:border-orange-500/50 hover:text-orange-400 transition-colors min-h-11">
             <Plus size={16} /> ブロックを追加
           </button>
         )}
 
-        {/* メニュー / タイマー連携（折りたたみ） */}
-        <div className="bg-[#1a1a1a] border border-white/8 rounded-2xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setMenuSectionOpen(v => !v)}
-            className="w-full flex items-center gap-2 px-4 py-3.5 text-left hover:bg-[#222] transition-colors min-h-11"
-          >
-            <Timer size={16} className="text-orange-400 shrink-0" />
-            <span className="flex-1 text-sm font-medium">メニュー / タイマー連携</span>
-            {menuSteps.length > 0 && (
-              <span className="text-xs text-gray-500">{menuSteps.length} ステップ</span>
-            )}
-            {session.linkedTimerRunId && (
-              <span className="text-[10px] text-green-400/80">同期済</span>
-            )}
-            <ChevronDown
-              size={18}
-              className={`text-gray-500 shrink-0 transition-transform ${menuSectionOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-
-          {menuSectionOpen && (
-            <div className="px-4 pb-4 border-t border-white/8 pt-3 space-y-3">
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowMenuPicker(v => !v)}
-                  className="text-xs text-orange-400 hover:text-orange-300"
-                >
-                  {showMenuPicker ? 'エディタに戻る' : 'テンプレートから選ぶ'}
-                </button>
-              </div>
-
-              {showMenuPicker ? (
-                <MenuPicker steps={menuSteps} onChange={handleMenuChange} />
-              ) : (
-                <MenuEditor steps={menuSteps} onChange={handleMenuChange} />
-              )}
-
-              {menuSteps.length > 0 && (
-                <p className="text-xs text-gray-500 truncate" title={menuSummary}>
-                  {menuSummary}
-                </p>
-              )}
-
-              <button
-                type="button"
-                onClick={handleStartTimerFromMenu}
-                disabled={menuSteps.length === 0}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold py-3 rounded-xl transition-colors min-h-11"
-              >
-                <Play size={16} /> このメニューで計測開始
-              </button>
-
-              {session.linkedTimerRunId && !isMeasuring && (
-                <p className="text-xs text-green-400/80 text-center">
-                  ラップ計測データが記録に反映されています
-                </p>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* 完了ボタン */}
@@ -786,13 +1027,15 @@ export default function SessionEditor({
         onClose={() => setPickerForBlock(null)} />
 
       {/* ブロック種類ピッカー */}
-      <Sheet open={showBlockPicker} onOpenChange={o => !o && setShowBlockPicker(false)}>
+      <Sheet open={showBlockPicker} onOpenChange={o => !o && closeBlockPicker()}>
         <SheetContent side="bottom" className="bg-[#1e1e1e] border-white/10 rounded-t-2xl p-6 pb-10">
           <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-6" />
-          <h3 className="text-sm font-bold mb-4">ブロックの種類を選択</h3>
+          <h3 className="text-sm font-bold mb-4">
+            {blockPickerBlockId ? 'ブロックの種類を変更' : 'ブロックの種類を選択'}
+          </h3>
           <div className="space-y-2">
             {BLOCK_TYPES.map(type => (
-              <button key={type} onClick={() => addBlock(type)}
+              <button key={type} onClick={() => handleBlockTypeSelect(type)}
                 className="w-full flex items-center gap-3 bg-white/5 hover:bg-white/10 rounded-xl px-4 py-3 transition-colors">
                 <Badge variant="outline" className={`text-xs font-semibold shrink-0 border ${BLOCK_TYPE_CLS[type]}`}>
                   {type}

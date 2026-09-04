@@ -5,7 +5,7 @@ import { Dumbbell, Scale, PersonStanding, Zap } from 'lucide-react'
 import SessionDetailSheet from '@/components/session-detail-sheet'
 import {
   mockSessions,
-  MONTHLY_GOAL_DAYS,
+  DEFAULT_MONTHLY_GOAL_DAYS,
   aggregateWeekStats,
   getSessionsInWeek,
   getUniqueTrainingDatesInMonth,
@@ -56,10 +56,12 @@ export default function HomeSummary({
   today = new Date(),
   compact = false,
   sessions: sessionsProp,
+  monthlyGoalDays = DEFAULT_MONTHLY_GOAL_DAYS,
 }: {
   today?: Date
   compact?: boolean
   sessions?: import('@/lib/data').Session[]
+  monthlyGoalDays?: number
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [dayPicker, setDayPicker] = useState<Session[] | null>(null)
@@ -110,7 +112,7 @@ export default function HomeSummary({
     }
   }
 
-  const goalProgress = Math.min(100, (monthDayCount / MONTHLY_GOAL_DAYS) * 100)
+  const goalProgress = Math.min(100, (monthDayCount / monthlyGoalDays) * 100)
 
   return (
     <>
@@ -175,7 +177,7 @@ export default function HomeSummary({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest">Goal</p>
-                <p className="text-xs text-gray-400">{monthDayCount} / {MONTHLY_GOAL_DAYS} days</p>
+                <p className="text-xs text-gray-400">{monthDayCount} / {monthlyGoalDays} days</p>
               </div>
               <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
                 <div

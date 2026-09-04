@@ -46,7 +46,7 @@ export default function HistoryPane({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const today = useMemo(() => new Date(), [])
-  const { sessions } = useWorkoutStore()
+  const { sessions, monthlyGoalDays } = useWorkoutStore()
 
   const monthStats = useMemo(() => {
     const year = today.getFullYear()
@@ -82,7 +82,7 @@ export default function HistoryPane({
         ))}
       </div>
 
-      <HomeSummary today={today} compact sessions={sessions} />
+      <HomeSummary today={today} compact sessions={sessions} monthlyGoalDays={monthlyGoalDays} />
 
       <div className="px-4 lg:px-3">
         <button

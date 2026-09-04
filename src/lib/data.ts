@@ -58,6 +58,14 @@ export interface Session {
   linkedTimerRunId?: string
 }
 
+/** 履歴（ペイン1）に保存する価値があるセッションか */
+export function isPersistableSession(session: Session): boolean {
+  if ((session.plannedMenu?.length ?? 0) > 0) return true
+  if (session.linkedTimerRunId) return true
+  if (session.note?.trim()) return true
+  return session.blocks.some(block => block.rows.length > 0)
+}
+
 export interface ExerciseMaster {
   id: string
   name: string
@@ -171,6 +179,57 @@ export const exerciseMaster: ExerciseMaster[] = [
     progressMetric: 'time',
   },
 ]
+
+export const MAIN_CATEGORIES: MainCategory[] = ['筋トレ', '有酸素', 'ファンクショナル']
+
+export const SUB_CATEGORIES: Record<MainCategory, SubCategory[]> = {
+  筋トレ: ['胸', '背中', '肩', '脚', '腕', '腹筋'],
+  有酸素: ['ラン', 'バイク', 'クロストレーナー', 'ステアクライマー'],
+  ファンクショナル: ['HYROX'],
+}
+
+export function defaultMetricsForCategory(
+  main: MainCategory,
+): Pick<ExerciseMaster, 'metrics' | 'completionCondition' | 'progressMetric'> {
+  if (main === '有酸素') {
+    return {
+      metrics: ['distance', 'time', 'rpe', 'note'],
+      completionCondition: ['distance'],
+      progressMetric: 'time',
+    }
+  }
+  if (main === 'ファンクショナル') {
+    return {
+      metrics: ['distance', 'time', 'note'],
+      completionCondition: ['distance', 'time'],
+      progressMetric: 'time',
+    }
+  }
+  return {
+    metrics: ['weight', 'reps', 'rpe', 'note'],
+    completionCondition: ['weight', 'reps'],
+    progressMetric: 'estimatedRM',
+  }
+}
+
+export function createExerciseMaster(
+  name: string,
+  mainCategory: MainCategory,
+  subCategory: SubCategory,
+  id?: string,
+): ExerciseMaster {
+  return {
+    id: id ?? `ex-custom-${Date.now()}`,
+    name,
+    mainCategory,
+    subCategory,
+    ...defaultMetricsForCategory(mainCategory),
+  }
+}
+
+export function isBuiltInExercise(id: string): boolean {
+  return /^ex-\d{3}$/.test(id)
+}
 
 // ===== モックセッション =====
 
@@ -512,7 +571,9 @@ export function countCompletedRows(session: Session): number {
   return session.blocks.flatMap(b => b.rows).filter(isRowCompleted).length
 }
 
-export const MONTHLY_GOAL_DAYS = 14
+export const DEFAULT_MONTHLY_GOAL_DAYS = 14
+/** @deprecated use DEFAULT_MONTHLY_GOAL_DAYS */
+export const MONTHLY_GOAL_DAYS = DEFAULT_MONTHLY_GOAL_DAYS
 
 const CARDIO_NAMES = ['ロードラン', 'トレッドミルラン']
 

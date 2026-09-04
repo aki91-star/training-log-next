@@ -11,7 +11,15 @@ import {
   type ReactNode,
 } from 'react'
 import { useSession } from 'next-auth/react'
-import { createDefaultBlock, mockSessions, type Session } from '@/lib/data'
+import {
+  DEFAULT_MONTHLY_GOAL_DAYS,
+  exerciseMaster,
+  isBuiltInExercise,
+  isPersistableSession,
+  mockSessions,
+  type ExerciseMaster,
+  type Session,
+} from '@/lib/data'
 import {
   HYROX_OFFICIAL_MENU,
   HYROX_OFFICIAL_MENU_ID,
@@ -31,11 +39,17 @@ import {
 const STORAGE_KEYS = {
   sessions: 'training-log:sessions',
   menuTemplates: 'training-log:menu-templates',
+  exercises: 'training-log:exercises',
   activeRun: 'training-log:active-run',
   lastMenuId: 'training-log:last-menu-id',
   activeSessionId: 'training-log:active-session-id',
+  monthlyGoalDays: 'training-log:monthly-goal-days',
   seeded: 'training-log:seeded-v1',
 } as const
+
+function clampMonthlyGoalDays(value: number): number {
+  return Math.min(31, Math.max(1, Math.round(value)))
+}
 
 function loadJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -75,7 +89,7 @@ function newSessionFromTemplate(name?: string): Session {
     date: new Date().toISOString().slice(0, 10),
     name: name ?? '新規セッション',
     status: 'active',
-    blocks: [createDefaultBlock()],
+    blocks: [],
   }
 }
 
@@ -90,15 +104,22 @@ function seedInitialState(): {
   }
 }
 
+type WorkoutPreferences = {
+  monthlyGoalDays: number
+  exercises?: ExerciseMaster[]
+}
+
 type WorkoutStoreValue = {
   hydrated: boolean
   cloudSynced: boolean
   cloudSyncing: boolean
   sessions: Session[]
   menuTemplates: WorkoutMenuTemplate[]
+  exercises: ExerciseMaster[]
   activeSessionId: string
   activeRun: ActiveTimerRun | null
   lastMenuId: string | null
+  monthlyGoalDays: number
 
   getSession: (id: string) => Session | undefined
   getActiveSession: () => Session | undefined
@@ -115,6 +136,9 @@ type WorkoutStoreValue = {
   getLastUsedMenu: () => WorkoutMenuTemplate | null
   setLastUsedMenu: (menuId: string) => void
 
+  saveExercise: (exercise: ExerciseMaster) => void
+  deleteExercise: (id: string) => void
+
   syncMenuToSession: (sessionId: string, steps: LapStep[]) => void
 
   startTimerRun: (sessionId: string, steps: LapStep[], menuId?: string) => ActiveTimerRun
@@ -126,6 +150,8 @@ type WorkoutStoreValue = {
   tickTimer: (elapsedMs: number) => void
 
   startFromLastMenu: () => { session: Session; menu: WorkoutMenuTemplate } | null
+
+  setMonthlyGoalDays: (days: number) => void
 }
 
 const WorkoutContext = createContext<WorkoutStoreValue | null>(null)
@@ -133,6 +159,7 @@ const WorkoutContext = createContext<WorkoutStoreValue | null>(null)
 async function fetchCloudWorkoutData(): Promise<{
   sessions: Session[]
   menuTemplates: WorkoutMenuTemplate[]
+  preferences: WorkoutPreferences
 } | null> {
   try {
     const res = await fetch('/api/workout-data')
@@ -146,17 +173,41 @@ async function fetchCloudWorkoutData(): Promise<{
 async function uploadCloudWorkoutData(
   sessions: Session[],
   menuTemplates: WorkoutMenuTemplate[],
+  preferences: WorkoutPreferences,
 ): Promise<boolean> {
   try {
     const res = await fetch('/api/workout-data', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessions, menuTemplates }),
+      body: JSON.stringify({
+        sessions,
+        menuTemplates,
+        preferences: {
+          monthlyGoalDays: preferences.monthlyGoalDays,
+          exercises: preferences.exercises,
+        },
+      }),
     })
     return res.ok
   } catch {
     return false
   }
+}
+
+function propagateExerciseName(
+  sessions: Session[],
+  exerciseId: string,
+  name: string,
+): Session[] {
+  return sessions.map(session => ({
+    ...session,
+    blocks: session.blocks.map(block => ({
+      ...block,
+      rows: block.rows.map(row =>
+        row.exerciseId === exerciseId ? { ...row, exerciseName: name } : row,
+      ),
+    })),
+  }))
 }
 
 export function WorkoutProvider({ children }: { children: ReactNode }) {
@@ -167,12 +218,35 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [cloudSynced, setCloudSynced] = useState(false)
   const [cloudSyncing, setCloudSyncing] = useState(false)
   const [sessions, setSessions] = useState<Session[]>([])
+  const [draftSessions, setDraftSessions] = useState<Record<string, Session>>({})
   const [menuTemplates, setMenuTemplates] = useState<WorkoutMenuTemplate[]>([])
+  const [exercises, setExercises] = useState<ExerciseMaster[]>([])
   const [activeSessionId, setActiveSessionIdState] = useState('new')
   const [activeRun, setActiveRun] = useState<ActiveTimerRun | null>(null)
   const [lastMenuId, setLastMenuIdState] = useState<string | null>(null)
+  const [monthlyGoalDays, setMonthlyGoalDaysState] = useState(DEFAULT_MONTHLY_GOAL_DAYS)
   const skipNextCloudSave = useRef(false)
+  const sessionsRef = useRef(sessions)
+  const draftSessionsRef = useRef(draftSessions)
   const sessionsForApp = useMemo(() => dedupeSessions(sessions), [sessions])
+
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
+
+  useEffect(() => {
+    draftSessionsRef.current = draftSessions
+  }, [draftSessions])
+
+  const findActiveSession = useCallback((): Session | undefined => {
+    const fromSessions = sessionsRef.current.find(
+      s => s.status === 'active' && s.id.startsWith('session-'),
+    )
+    if (fromSessions) return fromSessions
+    return Object.values(draftSessionsRef.current).find(
+      s => s.status === 'active' && s.id.startsWith('session-'),
+    )
+  }, [])
 
   useEffect(() => {
     const seeded = localStorage.getItem(STORAGE_KEYS.seeded)
@@ -180,17 +254,27 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       const initial = seedInitialState()
       saveJson(STORAGE_KEYS.sessions, initial.sessions)
       saveJson(STORAGE_KEYS.menuTemplates, initial.menuTemplates)
+      saveJson(STORAGE_KEYS.exercises, exerciseMaster)
       localStorage.setItem(STORAGE_KEYS.seeded, '1')
-      setSessions(dedupeSessions(initial.sessions))
+      setSessions(dedupeSessions(initial.sessions.filter(isPersistableSession)))
       setMenuTemplates(initial.menuTemplates)
+      setExercises(exerciseMaster)
     } else {
-      setSessions(dedupeSessions(loadJson(STORAGE_KEYS.sessions, mockSessions)))
+      setSessions(dedupeSessions(
+        loadJson(STORAGE_KEYS.sessions, mockSessions).filter(isPersistableSession),
+      ))
       setMenuTemplates(loadJson(STORAGE_KEYS.menuTemplates, [HYROX_OFFICIAL_MENU]))
+      setExercises(loadJson(STORAGE_KEYS.exercises, exerciseMaster))
     }
     setActiveRun(loadJson<ActiveTimerRun | null>(STORAGE_KEYS.activeRun, null))
     setLastMenuIdState(localStorage.getItem(STORAGE_KEYS.lastMenuId))
     setActiveSessionIdState(
       localStorage.getItem(STORAGE_KEYS.activeSessionId) ?? 'new',
+    )
+    setMonthlyGoalDaysState(
+      clampMonthlyGoalDays(
+        loadJson(STORAGE_KEYS.monthlyGoalDays, DEFAULT_MONTHLY_GOAL_DAYS),
+      ),
     )
     setHydrated(true)
   }, [])
@@ -206,6 +290,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && !cloudSynced) return
     saveJson(STORAGE_KEYS.menuTemplates, menuTemplates)
   }, [menuTemplates, hydrated, isAuthenticated, cloudSynced])
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated && !cloudSynced) return
+    saveJson(STORAGE_KEYS.exercises, exercises)
+  }, [exercises, hydrated, isAuthenticated, cloudSynced])
 
   useEffect(() => {
     if (!hydrated || authStatus === 'loading') return
@@ -230,17 +320,35 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       }
 
       const hasCloudData =
-        cloud.sessions.length > 0 || cloud.menuTemplates.length > 0
+        cloud.sessions.length > 0
+        || cloud.menuTemplates.length > 0
+        || (cloud.preferences?.exercises?.length ?? 0) > 0
 
       skipNextCloudSave.current = true
 
       if (hasCloudData) {
-        setSessions(dedupeSessions(cloud.sessions))
+        setSessions(dedupeSessions(cloud.sessions.filter(isPersistableSession)))
         setMenuTemplates(cloud.menuTemplates)
+        if (cloud.preferences?.exercises?.length) {
+          setExercises(cloud.preferences.exercises)
+        }
+        setMonthlyGoalDaysState(
+          clampMonthlyGoalDays(
+            cloud.preferences?.monthlyGoalDays ?? DEFAULT_MONTHLY_GOAL_DAYS,
+          ),
+        )
       } else {
         const localSessions = loadJson(STORAGE_KEYS.sessions, sessions)
+          .filter(isPersistableSession)
         const localMenus = loadJson(STORAGE_KEYS.menuTemplates, menuTemplates)
-        await uploadCloudWorkoutData(localSessions, localMenus)
+        const localExercises = loadJson(STORAGE_KEYS.exercises, exercises)
+        const localMonthlyGoalDays = clampMonthlyGoalDays(
+          loadJson(STORAGE_KEYS.monthlyGoalDays, DEFAULT_MONTHLY_GOAL_DAYS),
+        )
+        await uploadCloudWorkoutData(localSessions, localMenus, {
+          monthlyGoalDays: localMonthlyGoalDays,
+          exercises: localExercises,
+        })
       }
 
       setCloudSynced(true)
@@ -263,11 +371,14 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     }
 
     const timer = window.setTimeout(() => {
-      void uploadCloudWorkoutData(sessionsForApp, menuTemplates)
+      void uploadCloudWorkoutData(sessionsForApp, menuTemplates, {
+        monthlyGoalDays,
+        exercises,
+      })
     }, 800)
 
     return () => window.clearTimeout(timer)
-  }, [sessionsForApp, menuTemplates, hydrated, isAuthenticated, cloudSynced])
+  }, [sessionsForApp, menuTemplates, exercises, monthlyGoalDays, hydrated, isAuthenticated, cloudSynced])
 
   useEffect(() => {
     if (!hydrated) return
@@ -286,74 +397,103 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEYS.activeSessionId, activeSessionId)
   }, [activeSessionId, hydrated])
 
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated && !cloudSynced) return
+    saveJson(STORAGE_KEYS.monthlyGoalDays, monthlyGoalDays)
+  }, [monthlyGoalDays, hydrated, isAuthenticated, cloudSynced])
+
   const getSession = useCallback(
-    (id: string) => sessionsForApp.find(s => s.id === id),
-    [sessionsForApp],
+    (id: string) => sessionsForApp.find(s => s.id === id) ?? draftSessions[id],
+    [sessionsForApp, draftSessions],
   )
 
   const getActiveSession = useCallback(() => {
-    if (activeSessionId === 'new') {
-      return sessionsForApp.find(s => s.status === 'active' && s.id.startsWith('session-'))
-    }
-    return sessionsForApp.find(s => s.id === activeSessionId)
-  }, [sessionsForApp, activeSessionId])
+    if (activeSessionId === 'new') return findActiveSession()
+    return getSession(activeSessionId)
+  }, [activeSessionId, findActiveSession, getSession])
 
   const setActiveSessionId = useCallback((id: string) => {
     setActiveSessionIdState(id)
   }, [])
 
   const updateSession = useCallback((session: Session) => {
-    setSessions(prev => {
-      const idx = prev.findIndex(s => s.id === session.id)
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = session
-        return dedupeSessions(next)
-      }
-      return dedupeSessions([session, ...prev])
-    })
+    if (isPersistableSession(session)) {
+      setDraftSessions(prev => {
+        if (!(session.id in prev)) return prev
+        const next = { ...prev }
+        delete next[session.id]
+        return next
+      })
+      setSessions(prev => {
+        const idx = prev.findIndex(s => s.id === session.id)
+        if (idx >= 0) {
+          const next = [...prev]
+          next[idx] = session
+          return dedupeSessions(next)
+        }
+        return dedupeSessions([session, ...prev])
+      })
+      return
+    }
+
+    setSessions(prev => prev.filter(s => s.id !== session.id))
+    setDraftSessions(prev => ({ ...prev, [session.id]: session }))
   }, [])
 
   const deleteSession = useCallback((id: string) => {
     setSessions(prev => prev.filter(s => s.id !== id))
+    setDraftSessions(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     setActiveSessionIdState(current => (current === id ? 'new' : current))
   }, [])
 
   const createSession = useCallback((name?: string) => {
-    let result = newSessionFromTemplate(name)
-    setSessions(prev => {
-      if (!name) {
-        const active = prev.find(
-          s => s.status === 'active' && s.id.startsWith('session-'),
-        )
-        if (active) {
-          result = active
-          return prev
-        }
+    if (!name) {
+      const active = findActiveSession()
+      if (active) {
+        setActiveSessionIdState(active.id)
+        return active
       }
-      if (prev.some(s => s.id === result.id)) return prev
-      return dedupeSessions([result, ...prev])
+    }
+
+    const result = newSessionFromTemplate(name)
+    setDraftSessions(prev => {
+      const next: Record<string, Session> = {}
+      for (const [id, session] of Object.entries(prev)) {
+        if (isPersistableSession(session)) next[id] = session
+      }
+      next[result.id] = result
+      return next
     })
     setActiveSessionIdState(result.id)
     return result
-  }, [])
+  }, [findActiveSession])
 
   const ensureSession = useCallback((id: string): Session => {
     if (id === 'new') {
-      const existing = sessions.find(s => s.status === 'active')
-      if (existing) return existing
+      const active = findActiveSession()
+      if (active) return active
       return createSession()
     }
-    const found = sessions.find(s => s.id === id)
-    if (found) return found
+
+    const fromStore = sessionsRef.current.find(s => s.id === id)
+    if (fromStore) return fromStore
+
+    const fromDraft = draftSessionsRef.current[id]
+    if (fromDraft) return fromDraft
+
     const session = { ...newSessionFromTemplate(), id }
-    setSessions(prev => {
-      const existing = prev.find(s => s.id === id)
-      if (existing) return prev
-      return dedupeSessions([session, ...prev])
+    setDraftSessions(prev => {
+      if (prev[id]) return prev
+      return { ...prev, [id]: session }
     })
     return session
-  }, [sessions, createSession])
+  }, [createSession, findActiveSession])
 
   const saveMenuTemplate = useCallback((template: WorkoutMenuTemplate) => {
     setMenuTemplates(prev => {
@@ -383,6 +523,36 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setMenuTemplates(prev => [copy, ...prev])
     return copy
   }, [menuTemplates])
+
+  const saveExercise = useCallback((exercise: ExerciseMaster) => {
+    setExercises(prev => {
+      const existing = prev.find(e => e.id === exercise.id)
+      if (existing && existing.name !== exercise.name) {
+        queueMicrotask(() => {
+          setSessions(s => propagateExerciseName(s, exercise.id, exercise.name))
+          setDraftSessions(drafts => {
+            const next: Record<string, Session> = {}
+            for (const [id, session] of Object.entries(drafts)) {
+              next[id] = propagateExerciseName([session], exercise.id, exercise.name)[0]
+            }
+            return next
+          })
+        })
+      }
+      const idx = prev.findIndex(e => e.id === exercise.id)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = exercise
+        return next
+      }
+      return [exercise, ...prev]
+    })
+  }, [])
+
+  const deleteExercise = useCallback((id: string) => {
+    if (isBuiltInExercise(id)) return
+    setExercises(prev => prev.filter(e => e.id !== id))
+  }, [])
 
   const getLastUsedMenu = useCallback((): WorkoutMenuTemplate | null => {
     if (lastMenuId) {
@@ -529,15 +699,21 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     return { session, menu }
   }, [getLastUsedMenu, createSession, syncMenuToSession, setLastUsedMenu])
 
+  const setMonthlyGoalDays = useCallback((days: number) => {
+    setMonthlyGoalDaysState(clampMonthlyGoalDays(days))
+  }, [])
+
   const value = useMemo<WorkoutStoreValue>(() => ({
     hydrated,
     cloudSynced,
     cloudSyncing,
     sessions: sessionsForApp,
     menuTemplates,
+    exercises,
     activeSessionId,
     activeRun,
     lastMenuId,
+    monthlyGoalDays,
     getSession,
     getActiveSession,
     setActiveSessionId,
@@ -550,6 +726,8 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     duplicateMenuTemplate,
     getLastUsedMenu,
     setLastUsedMenu,
+    saveExercise,
+    deleteExercise,
     syncMenuToSession,
     startTimerRun,
     pauseTimerRun,
@@ -559,13 +737,15 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     resetTimerRun,
     tickTimer,
     startFromLastMenu,
+    setMonthlyGoalDays,
   }), [
-    hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, activeSessionId, activeRun, lastMenuId,
+    hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, exercises, activeSessionId, activeRun, lastMenuId,
+    monthlyGoalDays,
     getSession, getActiveSession, setActiveSessionId, createSession, updateSession,
     deleteSession, ensureSession, saveMenuTemplate, deleteMenuTemplate, duplicateMenuTemplate,
-    getLastUsedMenu, setLastUsedMenu, syncMenuToSession, startTimerRun,
+    getLastUsedMenu, setLastUsedMenu, saveExercise, deleteExercise, syncMenuToSession, startTimerRun,
     pauseTimerRun, resumeTimerRun, recordLap, completeTimerRun, resetTimerRun,
-    tickTimer, startFromLastMenu,
+    tickTimer, startFromLastMenu, setMonthlyGoalDays,
   ])
 
   if (!hydrated || (isAuthenticated && !cloudSynced)) {

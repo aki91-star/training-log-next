@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import Providers from '@/components/providers'
-import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/app-config'
+import { APP_DESCRIPTION, APP_NAME } from '@/lib/app-config'
 import './globals.css'
 
 const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    title: APP_SHORT_NAME,
+    title: APP_NAME,
     statusBarStyle: 'black-translucent',
   },
   icons: {

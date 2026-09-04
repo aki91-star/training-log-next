@@ -44,5 +44,10 @@ CREATE TABLE IF NOT EXISTS user_workout_data (
   "userId" INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   sessions JSONB NOT NULL DEFAULT '[]'::jsonb,
   menu_templates JSONB NOT NULL DEFAULT '[]'::jsonb,
+  preferences JSONB NOT NULL DEFAULT '{"monthlyGoalDays":14}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Existing deployments: run once if the table already exists without preferences
+-- ALTER TABLE user_workout_data
+--   ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{"monthlyGoalDays":14}'::jsonb;

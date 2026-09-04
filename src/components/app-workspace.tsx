@@ -38,10 +38,15 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
   const [activePane, setActivePane] = useState<AppPane>(
     isAppPane(paneParam) ? paneParam : initialPane,
   )
+  const [settingsSubMode, setSettingsSubMode] = useState<'main' | 'menus' | 'exercises'>('main')
 
   useEffect(() => {
     if (isAppPane(paneParam)) setActivePane(paneParam)
   }, [paneParam])
+
+  useEffect(() => {
+    if (activePane !== 'settings') setSettingsSubMode('main')
+  }, [activePane])
 
   useEffect(() => {
     if (sessionParam) setActiveSessionId(sessionParam)
@@ -90,13 +95,24 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     router.replace(`/?pane=timer&session=${activeSessionId}`, { scroll: false })
   }, [router, activeSessionId])
 
+  const openTrainingPane = useCallback(() => {
+    setActivePane('training')
+    const params = new URLSearchParams()
+    params.set('pane', 'training')
+    params.set('session', activeSessionId)
+    router.replace(`/?${params.toString()}`, { scroll: false })
+  }, [router, activeSessionId])
+
+  const isMeasuring = !!activeRun && (activeRun.status === 'running' || activeRun.status === 'paused')
+
   return (
     <div className="app-workspace">
       <header className="flex items-center justify-between px-4 py-3 lg:px-6 lg:py-4 border-b border-white/10 bg-[#0d0d0d]">
         <AppLogo
           size="sm"
           showName
-          className="lg:hidden"
+          title={APP_NAME}
+          className="lg:hidden [&_p:first-of-type]:text-[11px] [&_p:first-of-type]:leading-snug [&_p:first-of-type]:tracking-tight max-w-[calc(100vw-5rem)]"
         />
         <AppLogo
           size="md"
@@ -124,7 +140,7 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
           className={`app-pane ${activePane === 'training' ? 'app-pane-active' : 'app-pane-hidden-mobile'}`}
           aria-label="記録"
         >
-          <PaneHeader title="記録" subtitle="トレーニング内容の入力" />
+          <PaneHeader title="記録" subtitle="ラップメニュー · 種目入力" />
           <div className="app-pane-body app-pane-body-flush">
             <TrainingPane
               sessionId={sessionParam ?? activeSessionId ?? 'new'}
@@ -139,9 +155,9 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
           className={`app-pane ${activePane === 'timer' ? 'app-pane-active' : 'app-pane-hidden-mobile'}`}
           aria-label="タイマー"
         >
-          <PaneHeader title="タイマー" subtitle="休憩・Hyroxラップ・HIIT" />
+          <PaneHeader title="タイマー" subtitle="ラップ計測 · 休憩 · HIIT" />
           <div className="app-pane-body">
-            <TimerPane onOpenSession={openSession} />
+            <TimerPane onOpenSession={openSession} onOpenTraining={openTrainingPane} />
           </div>
         </section>
 
@@ -149,14 +165,29 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
           className={`app-pane ${activePane === 'settings' ? 'app-pane-active' : 'app-pane-hidden-mobile'}`}
           aria-label="設定"
         >
-          <PaneHeader title="設定" subtitle="個人設定・バックアップ" />
+          <PaneHeader
+            title={
+              settingsSubMode === 'menus'
+                ? 'セットメニュー管理'
+                : settingsSubMode === 'exercises'
+                  ? '種目管理'
+                  : '設定'
+            }
+            subtitle={
+              settingsSubMode === 'menus'
+                ? 'HYROX等の複合メニュー'
+                : settingsSubMode === 'exercises'
+                  ? 'ベンチプレス等の種目マスタ'
+                  : '個人設定・バックアップ'
+            }
+          />
           <div className="app-pane-body">
-            <SettingsPane />
+            <SettingsPane onSubModeChange={setSettingsSubMode} />
           </div>
         </section>
       </div>
 
-      <PaneNav active={activePane} onChange={selectPane} className="lg:hidden" />
+      <PaneNav active={activePane} onChange={selectPane} isMeasuring={isMeasuring} className="lg:hidden" />
     </div>
   )
 }

@@ -17,10 +17,12 @@ export default function LapStopwatch({
   steps,
   menuId,
   onOpenSession,
+  onOpenTraining,
 }: {
   steps: LapStep[]
   menuId?: string
   onOpenSession?: (sessionId: string) => void
+  onOpenTraining?: () => void
 }) {
   const {
     activeSessionId,
@@ -138,9 +140,18 @@ export default function LapStopwatch({
         )}
 
         {!hasSteps && (
-          <p className="text-sm text-center text-gray-500">
-            下のメニュー設定から選択してください
-          </p>
+          <div className="text-sm text-center space-y-2">
+            <p className="text-gray-500">記録ペインでラップメニューを設定してください</p>
+            {onOpenTraining && (
+              <button
+                type="button"
+                onClick={onOpenTraining}
+                className="text-xs text-orange-400 hover:text-orange-300"
+              >
+                記録ペインを開く →
+              </button>
+            )}
+          </div>
         )}
 
         <div className="space-y-2">

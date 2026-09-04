@@ -1,5 +1,5 @@
 import Image from 'next/image'
-import { APP_SHORT_NAME } from '@/lib/app-config'
+import { APP_NAME, APP_SHORT_NAME } from '@/lib/app-config'
 import { cn } from '@/lib/utils'
 
 const iconSizes = {
@@ -21,7 +21,7 @@ export default function AppLogo({
   size = 'md',
   showName = true,
   showTagline = false,
-  title = APP_SHORT_NAME,
+  title = APP_NAME,
   tagline,
   className,
 }: AppLogoProps) {

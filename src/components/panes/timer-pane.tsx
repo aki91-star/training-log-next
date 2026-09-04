@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronDown, Play, Zap } from 'lucide-react'
+import { Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useWorkoutStore } from '@/lib/workout-store'
-import { cloneSteps, type LapStep } from '@/lib/workout-types'
-import MenuPicker from '@/components/menu-picker'
+import { cloneSteps } from '@/lib/workout-types'
 import LapStopwatch from '@/components/lap-stopwatch'
 import RestTimer from '@/components/timers/rest-timer'
 import HiitTimer from '@/components/timers/hiit-timer'
+import SessionStatusBar from '@/components/session-status-bar'
 
 type TimerMode = 'rest' | 'stopwatch' | 'hiit'
 
@@ -20,13 +20,12 @@ const MODE_TABS: { id: TimerMode; label: string }[] = [
 
 export default function TimerPane({
   onOpenSession,
+  onOpenTraining,
 }: {
   onOpenSession?: (sessionId: string) => void
+  onOpenTraining?: () => void
 }) {
-  const [mode, setMode] = useState<TimerMode>('stopwatch')
-  const [steps, setSteps] = useState<LapStep[]>([])
-  const [selectedMenuId, setSelectedMenuId] = useState<string | undefined>()
-  const [menuOpen, setMenuOpen] = useState(true)
+  const [mode, setMode] = useState<TimerMode>('rest')
 
   const {
     getLastUsedMenu,
@@ -36,46 +35,45 @@ export default function TimerPane({
     activeRun,
     getSession,
     setActiveSessionId,
-    syncMenuToSession,
   } = useWorkoutStore()
 
   const session = getSession(activeSessionId)
+  const steps = session?.plannedMenu ? cloneSteps(session.plannedMenu) : []
   const lastMenu = getLastUsedMenu()
   const isMeasuring = !!activeRun && (activeRun.status === 'running' || activeRun.status === 'paused')
+  const linkedRun = activeRun && isMeasuring ? activeRun : null
 
   useEffect(() => {
-    if (session?.plannedMenu?.length) {
-      setSteps(cloneSteps(session.plannedMenu))
+    if (activeRun && (activeRun.status === 'running' || activeRun.status === 'paused')) {
+      setMode('stopwatch')
+    } else if (session?.plannedMenu?.length) {
+      setMode('stopwatch')
     }
-  }, [session?.id, session?.plannedMenu])
-
-  useEffect(() => {
-    if (isMeasuring) setMenuOpen(false)
-  }, [isMeasuring])
-
-  function handleStepsChange(newSteps: LapStep[]) {
-    setSteps(newSteps)
-    if (activeSessionId && activeSessionId !== 'new') {
-      syncMenuToSession(activeSessionId, newSteps)
-    }
-  }
-
-  function handleMenuSelect(menuId: string) {
-    setSelectedMenuId(menuId)
-  }
+  }, [activeRun?.id, activeRun?.status, session?.id, session?.plannedMenu?.length])
 
   function handleQuickStartLastMenu() {
     const result = startFromLastMenu()
     if (!result) return
-    setSteps(cloneSteps(result.menu.steps))
-    setSelectedMenuId(result.menu.id)
     setActiveSessionId(result.session.id)
     startTimerRun(result.session.id, result.menu.steps, result.menu.id)
+    setMode('stopwatch')
     onOpenSession?.(result.session.id)
   }
 
+  const menuSummary = steps.length > 0
+    ? `${steps.length} ステップ · ${steps[0].label} → …`
+    : null
+
   return (
     <div className="space-y-4 px-4 pb-4 lg:px-3">
+      {linkedRun && (
+        <SessionStatusBar
+          run={linkedRun}
+          variant="timer"
+          onOpenTraining={onOpenTraining}
+        />
+      )}
+
       <div className="flex gap-1.5">
         {MODE_TABS.map(({ id, label }) => (
           <button
@@ -98,10 +96,14 @@ export default function TimerPane({
 
       {mode === 'stopwatch' && (
         <div className="space-y-4">
+          {!isMeasuring && steps.length > 0 && menuSummary && (
+            <p className="text-xs text-gray-400 text-center px-2">{menuSummary}</p>
+          )}
+
           <LapStopwatch
             steps={steps}
-            menuId={selectedMenuId}
             onOpenSession={onOpenSession}
+            onOpenTraining={onOpenTraining}
           />
 
           {!isMeasuring && lastMenu && (
@@ -112,36 +114,9 @@ export default function TimerPane({
               onClick={handleQuickStartLastMenu}
             >
               <Play size={16} />
-              前回のメニューで開始（{lastMenu.name}）
+              前回のラップメニューで開始（{lastMenu.name}）
             </Button>
           )}
-
-          <div className="bg-[#1a1a1a] border border-white/8 rounded-2xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setMenuOpen(v => !v)}
-              className="w-full flex items-center gap-2 px-4 py-3.5 text-left hover:bg-[#222] transition-colors min-h-11"
-            >
-              <Zap size={16} className="text-orange-400 shrink-0" />
-              <span className="flex-1 text-sm font-medium">メニュー設定</span>
-              {steps.length > 0 && (
-                <span className="text-xs text-gray-500">{steps.length} ステップ</span>
-              )}
-              <ChevronDown
-                size={18}
-                className={`text-gray-500 shrink-0 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
-            {menuOpen && (
-              <div className="px-4 pb-4 border-t border-white/8 pt-3">
-                <MenuPicker
-                  steps={steps}
-                  onChange={handleStepsChange}
-                  onMenuSelect={handleMenuSelect}
-                />
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>

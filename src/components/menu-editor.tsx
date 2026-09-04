@@ -42,7 +42,7 @@ export default function MenuEditor({
   if (steps.length === 0 && !readOnly) {
     return (
       <div className="text-center py-6 space-y-3">
-        <p className="text-sm text-gray-500">メニューが未設定です</p>
+        <p className="text-sm text-gray-500">ステップがありません。競技または移動を追加してください</p>
         <div className="flex gap-2 justify-center">
           <Button type="button" size="sm" className="bg-orange-500 hover:bg-orange-400" onClick={() => addStep('station')}>
             <Plus size={14} /> 競技を追加

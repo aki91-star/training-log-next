@@ -1,11 +1,31 @@
 import { auth } from '@/auth'
+import { DEFAULT_MONTHLY_GOAL_DAYS, type ExerciseMaster, type Session } from '@/lib/data'
 import { getSql, isDatabaseConfigured } from '@/lib/db'
-import type { Session } from '@/lib/data'
 import type { WorkoutMenuTemplate } from '@/lib/workout-types'
+
+type WorkoutPreferences = {
+  monthlyGoalDays: number
+  exercises?: ExerciseMaster[]
+}
 
 type WorkoutPayload = {
   sessions: Session[]
   menuTemplates: WorkoutMenuTemplate[]
+  preferences?: Partial<WorkoutPreferences>
+}
+
+function clampMonthlyGoalDays(value: unknown): number {
+  const n = typeof value === 'number' ? value : DEFAULT_MONTHLY_GOAL_DAYS
+  return Math.min(31, Math.max(1, Math.round(n)))
+}
+
+function parsePreferences(raw: unknown): WorkoutPreferences {
+  const obj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const exercises = Array.isArray(obj.exercises) ? obj.exercises as ExerciseMaster[] : undefined
+  return {
+    monthlyGoalDays: clampMonthlyGoalDays(obj.monthlyGoalDays),
+    exercises,
+  }
 }
 
 function parseUserId(raw: string | undefined): number | null {
@@ -27,24 +47,30 @@ export async function GET() {
 
   const sql = getSql()
   const rows = await sql`
-    SELECT sessions, menu_templates
+    SELECT sessions, menu_templates, preferences
     FROM user_workout_data
     WHERE "userId" = ${userId}
     LIMIT 1
   `
 
   if (rows.length === 0) {
-    return Response.json({ sessions: [], menuTemplates: [] satisfies WorkoutMenuTemplate[] })
+    return Response.json({
+      sessions: [],
+      menuTemplates: [] satisfies WorkoutMenuTemplate[],
+      preferences: { monthlyGoalDays: DEFAULT_MONTHLY_GOAL_DAYS },
+    })
   }
 
   const row = rows[0] as {
     sessions: Session[]
     menu_templates: WorkoutMenuTemplate[]
+    preferences?: unknown
   }
 
   return Response.json({
     sessions: row.sessions ?? [],
     menuTemplates: row.menu_templates ?? [],
+    preferences: parsePreferences(row.preferences),
   })
 }
 
@@ -70,13 +96,16 @@ export async function PUT(request: Request) {
     return Response.json({ error: 'Invalid payload' }, { status: 400 })
   }
 
+  const preferences = parsePreferences(body.preferences)
+
   const sql = getSql()
   await sql`
-    INSERT INTO user_workout_data ("userId", sessions, menu_templates, updated_at)
-    VALUES (${userId}, ${body.sessions}, ${body.menuTemplates}, NOW())
+    INSERT INTO user_workout_data ("userId", sessions, menu_templates, preferences, updated_at)
+    VALUES (${userId}, ${body.sessions}, ${body.menuTemplates}, ${preferences}, NOW())
     ON CONFLICT ("userId") DO UPDATE SET
       sessions = EXCLUDED.sessions,
       menu_templates = EXCLUDED.menu_templates,
+      preferences = EXCLUDED.preferences,
       updated_at = NOW()
   `
 
