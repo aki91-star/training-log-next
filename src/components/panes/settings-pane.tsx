@@ -3,7 +3,9 @@
 import { useState } from 'react'
 import { Download, Upload, Info, ChevronRight, Check, Trash2, Copy } from 'lucide-react'
 import { exerciseMaster, isRowCompleted } from '@/lib/data'
+import { APP_NAME, APP_SHORT_NAME } from '@/lib/app-config'
 import AuthSection from '@/components/auth-section'
+import PwaInstallPrompt from '@/components/pwa-install-prompt'
 import { useWorkoutStore, HYROX_OFFICIAL_MENU_ID } from '@/lib/workout-store'
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -65,7 +67,7 @@ export default function SettingsPane() {
   function handleExport() {
     const data = {
       schemaVersion: '1.1.0',
-      appMeta: { name: 'training-log', exportedAt: new Date().toISOString() },
+      appMeta: { name: APP_SHORT_NAME, exportedAt: new Date().toISOString() },
       exerciseMaster,
       sessions,
       menuTemplates,
@@ -75,7 +77,7 @@ export default function SettingsPane() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `training-log-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `vyron-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
     setExportDone(true)
@@ -126,6 +128,11 @@ export default function SettingsPane() {
       <div>
         <SectionTitle>アカウント</SectionTitle>
         <AuthSection />
+      </div>
+
+      <div>
+        <SectionTitle>アプリのインストール</SectionTitle>
+        <PwaInstallPrompt />
       </div>
 
       <div>
@@ -193,7 +200,7 @@ export default function SettingsPane() {
             right={<span className="text-xs text-gray-600">固定</span>}
           />
         </div>
-        <p className="text-center text-xs text-gray-700 mt-4">training-log · v0.4.0 · ラップ連携</p>
+        <p className="text-center text-xs text-gray-700 mt-4">{APP_NAME} · v0.4.0 · ラップ連携</p>
       </div>
     </div>
   )

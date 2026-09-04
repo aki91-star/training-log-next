@@ -44,7 +44,7 @@ export default function HistoryPane({
   onOpenSession: (sessionId: string) => void
   onStartNew: () => void
 }) {
-  const [selected, setSelected] = useState<Session | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const today = useMemo(() => new Date(), [])
   const { sessions } = useWorkoutStore()
 
@@ -113,11 +113,11 @@ export default function HistoryPane({
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelected(session)}
+                    onClick={() => setSelectedId(session.id)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        setSelected(session)
+                        setSelectedId(session.id)
                       }
                     }}
                     className="min-w-0 flex-1 cursor-pointer text-left"
@@ -166,9 +166,9 @@ export default function HistoryPane({
       </div>
 
       <SessionDetailSheet
-        session={selected}
-        open={!!selected}
-        onOpenChange={open => !open && setSelected(null)}
+        sessionId={selectedId}
+        open={!!selectedId}
+        onOpenChange={open => !open && setSelectedId(null)}
       />
     </div>
   )

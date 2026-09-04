@@ -3,6 +3,7 @@
 import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+import AppLogo from '@/components/app-logo'
 
 function LoginForm() {
   const searchParams = useSearchParams()
@@ -12,8 +13,8 @@ function LoginForm() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-xl font-bold">Training Log</h1>
+        <div className="text-center space-y-4">
+          <AppLogo size="lg" showName={false} className="justify-center" />
           <p className="text-sm text-gray-500">
             Google アカウントでログインすると、記録が Neon に同期されます
           </p>

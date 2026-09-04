@@ -7,7 +7,9 @@ import HistoryPane from '@/components/panes/history-pane'
 import TrainingPane from '@/components/panes/training-pane'
 import TimerPane from '@/components/panes/timer-pane'
 import SettingsPane from '@/components/panes/settings-pane'
+import AppLogo from '@/components/app-logo'
 import UserAvatar from '@/components/user-avatar'
+import { APP_NAME } from '@/lib/app-config'
 import { useWorkoutStore } from '@/lib/workout-store'
 import { type AppPane, isAppPane } from '@/lib/panes'
 
@@ -90,11 +92,20 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
 
   return (
     <div className="app-workspace">
-      <header className="hidden lg:flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0d0d0d]">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">Training Log</h1>
-          <p className="text-xs text-gray-500">4ペイン · 履歴 / 記録 / タイマー / 設定</p>
-        </div>
+      <header className="flex items-center justify-between px-4 py-3 lg:px-6 lg:py-4 border-b border-white/10 bg-[#0d0d0d]">
+        <AppLogo
+          size="sm"
+          showName
+          className="lg:hidden"
+        />
+        <AppLogo
+          size="md"
+          showName
+          showTagline
+          title={APP_NAME}
+          tagline="4ペイン · 履歴 / 記録 / タイマー / 設定"
+          className="hidden lg:flex [&_p:first-of-type]:text-lg"
+        />
         <UserAvatar />
       </header>
 

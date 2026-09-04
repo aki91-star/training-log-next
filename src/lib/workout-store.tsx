@@ -106,6 +106,7 @@ type WorkoutStoreValue = {
 
   createSession: (name?: string) => Session
   updateSession: (session: Session) => void
+  deleteSession: (id: string) => void
   ensureSession: (id: string) => Session
 
   saveMenuTemplate: (template: WorkoutMenuTemplate) => void
@@ -311,6 +312,11 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       }
       return dedupeSessions([session, ...prev])
     })
+  }, [])
+
+  const deleteSession = useCallback((id: string) => {
+    setSessions(prev => prev.filter(s => s.id !== id))
+    setActiveSessionIdState(current => (current === id ? 'new' : current))
   }, [])
 
   const createSession = useCallback((name?: string) => {
@@ -537,6 +543,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setActiveSessionId,
     createSession,
     updateSession,
+    deleteSession,
     ensureSession,
     saveMenuTemplate,
     deleteMenuTemplate,
@@ -555,7 +562,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   }), [
     hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, activeSessionId, activeRun, lastMenuId,
     getSession, getActiveSession, setActiveSessionId, createSession, updateSession,
-    ensureSession, saveMenuTemplate, deleteMenuTemplate, duplicateMenuTemplate,
+    deleteSession, ensureSession, saveMenuTemplate, deleteMenuTemplate, duplicateMenuTemplate,
     getLastUsedMenu, setLastUsedMenu, syncMenuToSession, startTimerRun,
     pauseTimerRun, resumeTimerRun, recordLap, completeTimerRun, resetTimerRun,
     tickTimer, startFromLastMenu,

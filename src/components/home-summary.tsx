@@ -61,7 +61,7 @@ export default function HomeSummary({
   compact?: boolean
   sessions?: import('@/lib/data').Session[]
 }) {
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [dayPicker, setDayPicker] = useState<Session[] | null>(null)
 
   const year = today.getFullYear()
@@ -104,7 +104,7 @@ export default function HomeSummary({
     const sessionsOnDay = getSessionsOnDate(sessions, dateStr)
     if (sessionsOnDay.length === 0) return
     if (sessionsOnDay.length === 1) {
-      setSelectedSession(sessionsOnDay[0])
+      setSelectedSessionId(sessionsOnDay[0].id)
     } else {
       setDayPicker(sessionsOnDay)
     }
@@ -217,9 +217,9 @@ export default function HomeSummary({
       </div>
 
       <SessionDetailSheet
-        session={selectedSession}
-        open={!!selectedSession}
-        onOpenChange={open => !open && setSelectedSession(null)}
+        sessionId={selectedSessionId}
+        open={!!selectedSessionId}
+        onOpenChange={open => !open && setSelectedSessionId(null)}
       />
 
       {dayPicker && (
@@ -239,7 +239,7 @@ export default function HomeSummary({
                   type="button"
                   onClick={() => {
                     setDayPicker(null)
-                    setSelectedSession(s)
+                    setSelectedSessionId(s.id)
                   }}
                   className="w-full text-left bg-[#222] border border-white/8 rounded-xl px-4 py-3 hover:bg-[#2a2a2a] transition-colors"
                 >
