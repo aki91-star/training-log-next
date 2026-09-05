@@ -20,6 +20,7 @@ import {
   type ExerciseMaster,
   type Session,
 } from '@/lib/data'
+import { getLocalDateString } from '@/lib/date-utils'
 import {
   HYROX_OFFICIAL_MENU,
   HYROX_OFFICIAL_MENU_ID,
@@ -86,7 +87,7 @@ function dedupeSessions(sessions: Session[]): Session[] {
 function newSessionFromTemplate(name?: string): Session {
   return {
     id: newSessionId(),
-    date: new Date().toISOString().slice(0, 10),
+    date: getLocalDateString(),
     name: name ?? '新規セッション',
     status: 'active',
     blocks: [],
@@ -239,12 +240,13 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   }, [draftSessions])
 
   const findActiveSession = useCallback((): Session | undefined => {
+    const today = getLocalDateString()
     const fromSessions = sessionsRef.current.find(
-      s => s.status === 'active' && s.id.startsWith('session-'),
+      s => s.status === 'active' && s.id.startsWith('session-') && s.date === today,
     )
     if (fromSessions) return fromSessions
     return Object.values(draftSessionsRef.current).find(
-      s => s.status === 'active' && s.id.startsWith('session-'),
+      s => s.status === 'active' && s.id.startsWith('session-') && s.date === today,
     )
   }, [])
 

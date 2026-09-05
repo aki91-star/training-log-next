@@ -13,6 +13,7 @@ export type RowStatus = 'completed' | 'draft'
 
 export interface Metric {
   weight?: number   // kg
+  bodyweight?: boolean // 自重（重量なしでも完了可）
   reps?: number     // 回
   distance?: number // m
   time?: number     // 秒
@@ -536,11 +537,39 @@ export function calcEstimatedRM(weight: number, reps: number): number {
   return Math.round(weight * (1 + reps / 30))
 }
 
-/** 秒数を mm:ss 形式にフォーマット */
+/** 秒数を h:mm:ss または mm:ss 形式にフォーマット */
 export function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  }
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** 秒数を時・分・秒の入力用文字列に分解 */
+export function decomposeTimeSeconds(total?: number): { h: string; m: string; s: string } {
+  if (total == null || total <= 0) return { h: '', m: '', s: '' }
+  const hi = Math.floor(total / 3600)
+  const mi = Math.floor((total % 3600) / 60)
+  const si = total % 60
+  return {
+    h: hi > 0 ? String(hi) : '',
+    m: hi > 0 || mi > 0 ? String(mi).padStart(2, '0') : '',
+    s: hi > 0 || mi > 0 ? String(si).padStart(2, '0') : String(si),
+  }
+}
+
+/** 時・分・秒の入力文字列を秒数に合成 */
+export function composeTimeSeconds(h: string, m: string, s: string): number | undefined {
+  if (!h && !m && !s) return undefined
+  const hi = h ? parseInt(h, 10) : 0
+  const mi = m ? parseInt(m, 10) : 0
+  const si = s ? parseInt(s, 10) : 0
+  if ([hi, mi, si].some(n => isNaN(n) || n < 0)) return undefined
+  const total = hi * 3600 + mi * 60 + si
+  return total > 0 ? total : undefined
 }
 
 /** 距離を読みやすい形式に */
@@ -551,6 +580,7 @@ export function formatDistance(meters: number): string {
 /** メトリクスがセット完了条件を満たすか */
 export function isMetricsComplete(metrics: Metric): boolean {
   if (metrics.weight && metrics.reps) return true
+  if (metrics.bodyweight && metrics.reps) return true
   if (metrics.distance) return true
   if (metrics.time) return true
   return false

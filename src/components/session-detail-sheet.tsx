@@ -133,6 +133,7 @@ export default function SessionDetailSheet({
                                       )}
                                     </div>
                                     <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0">
+                                      {row.metrics.bodyweight && !row.metrics.weight && <span>自重</span>}
                                       {row.metrics.weight != null && <span>{row.metrics.weight}kg</span>}
                                       {row.metrics.reps != null && <span>× {row.metrics.reps}回</span>}
                                       {row.metrics.distance != null && <span>{formatDistance(row.metrics.distance)}</span>}
@@ -170,6 +171,7 @@ export default function SessionDetailSheet({
                               )}
                             </div>
                             <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0">
+                              {row.metrics.bodyweight && !row.metrics.weight && <span>自重</span>}
                               {row.metrics.weight != null && <span>{row.metrics.weight}kg</span>}
                               {row.metrics.reps != null && <span>× {row.metrics.reps}回</span>}
                               {row.metrics.distance != null && <span>{formatDistance(row.metrics.distance)}</span>}

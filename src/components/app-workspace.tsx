@@ -10,8 +10,27 @@ import SettingsPane from '@/components/panes/settings-pane'
 import AppLogo from '@/components/app-logo'
 import UserAvatar from '@/components/user-avatar'
 import { APP_NAME } from '@/lib/app-config'
+import { getLocalDateString } from '@/lib/date-utils'
+import { type Session } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
 import { type AppPane, isAppPane } from '@/lib/panes'
+
+function resolveTrainingSessionId(
+  sessionParam: string | null,
+  activeSessionId: string,
+  getSession: (id: string) => Session | undefined,
+): string {
+  const today = getLocalDateString()
+  const candidate = sessionParam ?? activeSessionId ?? 'new'
+  if (candidate === 'new') return 'new'
+
+  const session = getSession(candidate)
+  if (!session) return 'new'
+  if (session.status === 'completed') return candidate
+  if (session.date === today) return candidate
+
+  return 'new'
+}
 
 function PaneHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -33,6 +52,7 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     activeSessionId,
     activeRun,
     pauseTimerRun,
+    getSession,
   } = useWorkoutStore()
 
   const [activePane, setActivePane] = useState<AppPane>(
@@ -56,11 +76,13 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     setActivePane(pane)
     const params = new URLSearchParams()
     params.set('pane', pane)
-    if (pane === 'training' || pane === 'timer') {
+    if (pane === 'training') {
+      params.set('session', resolveTrainingSessionId(null, activeSessionId, getSession))
+    } else if (pane === 'timer') {
       params.set('session', activeSessionId)
     }
     router.replace(`/?${params.toString()}`, { scroll: false })
-  }, [router, activeSessionId])
+  }, [router, activeSessionId, getSession])
 
   const openSession = useCallback((sessionId: string) => {
     if (
@@ -99,9 +121,9 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     setActivePane('training')
     const params = new URLSearchParams()
     params.set('pane', 'training')
-    params.set('session', activeSessionId)
+    params.set('session', resolveTrainingSessionId(null, activeSessionId, getSession))
     router.replace(`/?${params.toString()}`, { scroll: false })
-  }, [router, activeSessionId])
+  }, [router, activeSessionId, getSession])
 
   const isMeasuring = !!activeRun && (activeRun.status === 'running' || activeRun.status === 'paused')
 
@@ -143,7 +165,7 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
           <PaneHeader title="記録" subtitle="ラップメニュー · 種目入力" />
           <div className="app-pane-body app-pane-body-flush">
             <TrainingPane
-              sessionId={sessionParam ?? activeSessionId ?? 'new'}
+              sessionId={resolveTrainingSessionId(sessionParam, activeSessionId, getSession)}
               onComplete={() => selectPane('history')}
               onSessionResolved={handleSessionResolved}
               onStartTimer={startTimerFromTraining}

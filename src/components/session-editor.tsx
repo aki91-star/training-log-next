@@ -15,12 +15,15 @@ import {
   mockSessions, calcEstimatedRM,
   deriveRowStatus, isRowCompleted,
   createExerciseMaster,
+  decomposeTimeSeconds,
+  composeTimeSeconds,
   MAIN_CATEGORIES,
   SUB_CATEGORIES,
   type ExerciseRow, type BlockType, type Session,
   type ExerciseMaster, type MainCategory, type SubCategory, type WorkBlock,
 } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
+import { getLocalDateString } from '@/lib/date-utils'
 import { cloneSteps, type LapStep } from '@/lib/workout-types'
 import LapMenuBar from '@/components/lap-menu-bar'
 import SessionStatusBar from '@/components/session-status-bar'
@@ -41,7 +44,7 @@ const BLOCK_TYPES: BlockType[] = ['単体', 'スーパーセット', 'サーキ�
 function newSession(): Session {
   return {
     id: 'session-new',
-    date: new Date().toISOString().slice(0, 10),
+    date: getLocalDateString(),
     name: '新規セッション',
     status: 'active',
     blocks: [],
@@ -49,6 +52,37 @@ function newSession(): Session {
 }
 
 // ===== MetricField =====
+
+const METRICS_GRID_CLS =
+  'grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.2fr)_minmax(0,0.75fr)_minmax(0,0.6fr)] gap-x-0.5 sm:gap-x-1'
+
+const TIME_INPUT_CLS =
+  'h-7 min-w-0 rounded-md border border-white/10 bg-[#252525] px-0 text-center text-[10px] tabular-nums text-white outline-none focus:border-orange-500/60'
+
+function BodyweightField({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex w-7 shrink-0 flex-col items-center gap-0.5">
+      <span className="flex h-4 items-end justify-center text-[9px] leading-none text-gray-500">
+        自重
+      </span>
+      <label className="flex h-7 cursor-pointer items-center justify-center">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={e => onChange(e.target.checked)}
+          className="h-4 w-4 rounded border-white/20 bg-[#252525] accent-blue-500"
+        />
+      </label>
+      <span className="text-[8px] leading-none text-transparent select-none" aria-hidden="true">—</span>
+    </div>
+  )
+}
 
 function MetricField({
   label,
@@ -74,7 +108,7 @@ function MetricField({
       </span>
       {readOnly ? (
         <span
-          className={`flex h-7 w-full items-center justify-center rounded-md text-xs font-bold tabular-nums ${
+          className={`flex h-7 w-full items-center justify-center rounded-md text-[10px] font-bold tabular-nums ${
             highlight ? 'text-orange-400' : 'text-gray-600'
           }`}
         >
@@ -91,6 +125,90 @@ function MetricField({
         />
       )}
       <span className="text-[8px] leading-none text-gray-600">{unit}</span>
+    </div>
+  )
+}
+
+function TimeField({
+  value,
+  onChange,
+}: {
+  value?: number
+  onChange: (seconds: number | undefined) => void
+}) {
+  const parts = decomposeTimeSeconds(value)
+
+  function update(part: 'h' | 'm' | 's', raw: string) {
+    const digits = raw.replace(/\D/g, '')
+    const maxLen = part === 'h' ? 2 : 2
+    const next = { ...parts, [part]: digits.slice(0, maxLen) }
+    onChange(composeTimeSeconds(next.h, next.m, next.s))
+  }
+
+  function clamp(part: 'm' | 's') {
+    const raw = parts[part]
+    if (!raw) return
+    const n = Math.min(59, parseInt(raw, 10))
+    if (isNaN(n)) {
+      update(part, '')
+      return
+    }
+    const padded = part === 'm' && (parts.h || n > 0)
+      ? String(n).padStart(2, '0')
+      : part === 's' && (parts.h || parts.m)
+        ? String(n).padStart(2, '0')
+        : String(n)
+    if (padded !== raw) {
+      const next = { ...parts, [part]: padded }
+      onChange(composeTimeSeconds(next.h, next.m, next.s))
+    }
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col items-center gap-0.5">
+      <span className="flex h-4 w-full items-end justify-center truncate text-center text-[9px] leading-none text-gray-500">
+        時間
+      </span>
+      <div className="flex h-7 w-full min-w-0 items-center justify-center">
+        <input
+          type="text"
+          inputMode="numeric"
+          value={parts.h}
+          onChange={e => update('h', e.target.value)}
+          placeholder="—"
+          aria-label="時間（時）"
+          className={`${TIME_INPUT_CLS} w-[1.15rem] shrink-0`}
+        />
+        <span className="shrink-0 px-px text-[9px] leading-none text-gray-600">:</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={parts.m}
+          onChange={e => update('m', e.target.value)}
+          onBlur={() => clamp('m')}
+          placeholder="—"
+          aria-label="時間（分）"
+          className={`${TIME_INPUT_CLS} w-[1.15rem] shrink-0`}
+        />
+        <span className="shrink-0 px-px text-[9px] leading-none text-gray-600">:</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={parts.s}
+          onChange={e => update('s', e.target.value)}
+          onBlur={() => clamp('s')}
+          placeholder="—"
+          aria-label="時間（秒）"
+          className={`${TIME_INPUT_CLS} w-[1.15rem] shrink-0`}
+        />
+      </div>
+      <div className="flex w-full min-w-0 items-center justify-center text-[8px] leading-none text-gray-600">
+        <span className="w-[1.15rem] shrink-0 text-center">時</span>
+        <span className="w-[0.45rem] shrink-0" aria-hidden="true" />
+        <span className="w-[1.15rem] shrink-0 text-center">分</span>
+        <span className="w-[0.45rem] shrink-0" aria-hidden="true" />
+        <span className="w-[1.15rem] shrink-0 text-center">秒</span>
+      </div>
     </div>
   )
 }
@@ -137,24 +255,27 @@ function SetRow({
           </button>
         </div>
 
-        {/* メトリクス + 推定1RM（6列固定・折り返しなし） */}
-        <div className="grid grid-cols-6 gap-x-0.5 sm:gap-x-1">
+        {/* メトリクス + 推定1RM（7列固定・折り返しなし） */}
+        <div className={METRICS_GRID_CLS}>
           <MetricField label="重量" unit="kg"
             value={m.weight?.toString() ?? ''}
             onChange={v => onChange({ ...m, weight: v ? +v : undefined })} />
+          <BodyweightField
+            checked={!!m.bodyweight}
+            onChange={v => onChange({ ...m, bodyweight: v || undefined })} />
           <MetricField label="回数" unit="回"
             value={m.reps?.toString() ?? ''}
             onChange={v => onChange({ ...m, reps: v ? +v : undefined })} />
           <MetricField label="距離" unit="m"
             value={m.distance?.toString() ?? ''}
             onChange={v => onChange({ ...m, distance: v ? +v : undefined })} />
-          <MetricField label="時間" unit="秒"
-            value={m.time?.toString() ?? ''}
-            onChange={v => onChange({ ...m, time: v ? +v : undefined })} />
+          <TimeField
+            value={m.time}
+            onChange={time => onChange({ ...m, time })} />
           <MetricField label="RPE" unit="/10"
             value={m.rpe?.toString() ?? ''}
             onChange={v => onChange({ ...m, rpe: v ? +v : undefined })} />
-          <MetricField label="推定1RM" unit="kg"
+          <MetricField label="1RM" unit="kg"
             readOnly
             displayValue={estRM}
             highlight={!!estRM} />
@@ -244,23 +365,26 @@ function SupersetRoundRow({
           </button>
         </div>
 
-        <div className="grid grid-cols-6 gap-x-0.5 sm:gap-x-1 pl-8">
+        <div className={`${METRICS_GRID_CLS} pl-8`}>
           <MetricField label="重量" unit="kg"
             value={m.weight?.toString() ?? ''}
             onChange={v => onChange({ ...m, weight: v ? +v : undefined })} />
+          <BodyweightField
+            checked={!!m.bodyweight}
+            onChange={v => onChange({ ...m, bodyweight: v || undefined })} />
           <MetricField label="回数" unit="回"
             value={m.reps?.toString() ?? ''}
             onChange={v => onChange({ ...m, reps: v ? +v : undefined })} />
           <MetricField label="距離" unit="m"
             value={m.distance?.toString() ?? ''}
             onChange={v => onChange({ ...m, distance: v ? +v : undefined })} />
-          <MetricField label="時間" unit="秒"
-            value={m.time?.toString() ?? ''}
-            onChange={v => onChange({ ...m, time: v ? +v : undefined })} />
+          <TimeField
+            value={m.time}
+            onChange={time => onChange({ ...m, time })} />
           <MetricField label="RPE" unit="/10"
             value={m.rpe?.toString() ?? ''}
             onChange={v => onChange({ ...m, rpe: v ? +v : undefined })} />
-          <MetricField label="推定1RM" unit="kg"
+          <MetricField label="1RM" unit="kg"
             readOnly
             displayValue={estRM}
             highlight={!!estRM} />
@@ -698,7 +822,7 @@ export default function SessionEditor({
           id: `row-copy-${Date.now()}`,
           exerciseId: last.exerciseId, exerciseName: last.exerciseName,
           round: exRows.length + 1, order: b.rows.length + 1,
-          status: deriveRowStatus(last.metrics), metrics: { ...last.metrics },
+          status: 'draft', metrics: {},
         }
         const lastIdx = b.rows.reduce((acc, r, i) => r.exerciseId === exerciseId ? i : acc, -1)
         const next = [...b.rows]
