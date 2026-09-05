@@ -5,6 +5,7 @@ import { Flag, Pause, Play, RotateCcw, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatMs } from '@/lib/format-time'
 import { useInterval } from '@/lib/use-interval'
+import { useWakeLock } from '@/lib/use-wake-lock'
 import { useWorkoutStore } from '@/lib/workout-store'
 import type { LapStep } from '@/lib/workout-types'
 import LinkedSessionBadge from '@/components/linked-session-badge'
@@ -27,6 +28,7 @@ export default function LapStopwatch({
   const {
     activeSessionId,
     activeRun,
+    keepScreenOnEnabled,
     ensureSession,
     startTimerRun,
     pauseTimerRun,
@@ -42,6 +44,8 @@ export default function LapStopwatch({
 
   const run = activeRun
   const isRunning = run?.status === 'running'
+  const isActiveRun = run?.status === 'running' || run?.status === 'paused'
+  useWakeLock(isActiveRun && keepScreenOnEnabled)
   const hasSteps = steps.length > 0
   const currentStep = run
     ? run.steps[run.currentStepIndex]

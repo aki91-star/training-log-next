@@ -4,24 +4,39 @@ import type { ActiveTimerRun, LapStep, TimerLapRecord } from '@/lib/workout-type
 
 const LAP_BLOCK_MARKER = 'lap-timer-block'
 
+export function isLapBlock(block: WorkBlock): boolean {
+  return block.id === LAP_BLOCK_MARKER || block.id.startsWith('block-lap-')
+}
+
+export function getLapRowKind(row: ExerciseRow): '競技' | '移動' {
+  if (row.metrics.lapKind) return row.metrics.lapKind
+  if (row.exerciseName.startsWith('[移動]')) return '移動'
+  if (row.metrics.note?.includes('移動')) return '移動'
+  return '競技'
+}
+
+export function getLapRowLabel(row: ExerciseRow): string {
+  return row.exerciseName.replace(/^\[移動\]\s*/, '')
+}
+
 function lapRowFromRecord(lap: TimerLapRecord, order: number): ExerciseRow {
-  const { step, splitMs } = lap
-  const splitSec = Math.round(splitMs / 1000)
-  const kindLabel = step.kind === 'transition' ? '移動' : '競技'
+  const { step, splitMs, totalMs } = lap
 
   return {
     id: `row-lap-${lap.id}`,
-    exerciseId: step.exerciseId ?? `ex-lap-${step.id}`,
-    exerciseName: step.kind === 'transition' ? `[移動] ${step.label}` : step.label,
+    exerciseId: step.id,
+    exerciseName: step.label,
     round: 1,
     order,
     status: 'completed',
     metrics: {
-      time: splitSec,
+      time: splitMs >= 1000 ? Math.round(splitMs / 1000) : undefined,
       distance: step.defaultDistance,
       weight: step.defaultWeight,
       reps: step.defaultReps,
-      note: `ラップ計測（${kindLabel}・自動入力）`,
+      lapKind: step.kind === 'transition' ? '移動' : '競技',
+      lapSplitMs: splitMs,
+      lapTotalMs: totalMs,
     },
   }
 }

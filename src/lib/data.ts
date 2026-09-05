@@ -19,6 +19,9 @@ export interface Metric {
   time?: number     // 秒
   rpe?: number      // 1-10
   note?: string
+  lapKind?: '競技' | '移動'
+  lapSplitMs?: number  // ラップ計測: 区間タイム (ms)
+  lapTotalMs?: number  // ラップ計測: 累計タイム (ms)
 }
 
 export interface ExerciseRow {

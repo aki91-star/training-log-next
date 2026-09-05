@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Copy, History, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useWorkoutStore, HYROX_OFFICIAL_MENU_ID } from '@/lib/workout-store'
-import { buildHyroxOfficialSteps } from '@/lib/hyrox-official-menu'
 import { cloneSteps, createMenuTemplate, type LapStep } from '@/lib/workout-types'
 import MenuEditor from '@/components/menu-editor'
 
@@ -38,9 +37,7 @@ export default function MenuPicker({
   }
 
   function loadHyroxOfficial() {
-    onChange(buildHyroxOfficialSteps())
-    setLastUsedMenu(HYROX_OFFICIAL_MENU_ID)
-    onMenuSelect?.(HYROX_OFFICIAL_MENU_ID)
+    loadTemplate(HYROX_OFFICIAL_MENU_ID)
   }
 
   function handleSave() {

@@ -5,7 +5,10 @@ import { Pause, Play, RotateCcw, Timer as TimerIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { formatCountdown } from '@/lib/format-time'
+import { playTimerAlarm, unlockTimerAudio } from '@/lib/timer-alarm'
 import { useInterval } from '@/lib/use-interval'
+import { useWakeLock } from '@/lib/use-wake-lock'
+import { useWorkoutStore } from '@/lib/workout-store'
 
 const REST_PRESETS = [30, 60, 90, 120, 180, 300]
 
@@ -14,11 +17,14 @@ function nowMs() {
 }
 
 export default function RestTimer() {
+  const { timerAlarmEnabled, keepScreenOnEnabled } = useWorkoutStore()
   const [duration, setDuration] = useState(90)
   const [custom, setCustom] = useState('90')
   const [remaining, setRemaining] = useState(90)
   const [running, setRunning] = useState(false)
   const endAtRef = useRef<number | null>(null)
+
+  useWakeLock(running && keepScreenOnEnabled)
 
   useInterval(() => {
     if (!running || endAtRef.current === null) return
@@ -27,6 +33,7 @@ export default function RestTimer() {
     if (left <= 0) {
       setRunning(false)
       endAtRef.current = null
+      playTimerAlarm(timerAlarmEnabled)
     }
   }, running ? 100 : null)
 
@@ -39,6 +46,7 @@ export default function RestTimer() {
   }
 
   function start() {
+    unlockTimerAudio()
     endAtRef.current = nowMs() + remaining * 1000
     setRunning(true)
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ArrowLeft, Trash2, Search, X, Repeat2, ChevronDown } from 'lucide-react'
+import { Plus, ArrowLeft, Trash2, Search, X, Repeat2, ChevronDown, Flag } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -24,6 +24,8 @@ import {
 } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
 import { getLocalDateString } from '@/lib/date-utils'
+import { formatMs } from '@/lib/format-time'
+import { getLapRowKind, getLapRowLabel, isLapBlock } from '@/lib/lap-to-session'
 import { cloneSteps, type LapStep } from '@/lib/workout-types'
 import LapMenuBar from '@/components/lap-menu-bar'
 import SessionStatusBar from '@/components/session-status-bar'
@@ -527,6 +529,70 @@ function SupersetBlockView({
   )
 }
 
+// ===== LapBlockView =====
+
+function LapBlockView({
+  rows,
+  onDelete,
+}: {
+  rows: ExerciseRow[]
+  onDelete: (id: string) => void
+}) {
+  const sorted = [...rows].sort((a, b) => a.order - b.order)
+  const totalMs = sorted[sorted.length - 1]?.metrics.lapTotalMs
+
+  return (
+    <div className="rounded-xl border border-orange-500/25 bg-orange-500/[0.04] overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-orange-500/20 bg-orange-500/10 px-3 py-2.5">
+        <Flag size={14} className="shrink-0 text-orange-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-orange-200">ラップ計測</p>
+          <p className="text-[10px] leading-snug text-orange-300/70">
+            {sorted.length}ラップ
+            {totalMs != null ? ` · 合計 ${formatMs(totalMs)}` : ''}
+          </p>
+        </div>
+      </div>
+
+      <div className="divide-y divide-white/5">
+        {sorted.map(row => {
+          const kind = getLapRowKind(row)
+          const label = getLapRowLabel(row)
+          const splitMs = row.metrics.lapSplitMs
+          const total = row.metrics.lapTotalMs
+
+          return (
+            <div key={row.id} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="w-6 shrink-0 text-xs text-gray-600">#{row.order}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{label}</p>
+                <p className="text-xs text-gray-500">
+                  <span className={kind === '移動' ? 'text-gray-400' : 'text-orange-300/80'}>
+                    {kind}
+                  </span>
+                  {total != null && <> · 累計 {formatMs(total)}</>}
+                  {row.metrics.distance != null && <> · {row.metrics.distance}m</>}
+                </p>
+              </div>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-orange-400">
+                {splitMs != null ? formatMs(splitMs) : row.metrics.time != null ? `${row.metrics.time}s` : '—'}
+              </span>
+              <button
+                type="button"
+                onClick={() => onDelete(row.id)}
+                className="shrink-0 p-1 text-gray-600 transition-colors hover:text-red-400"
+                aria-label={`ラップ #${row.order} を削除`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ===== ExerciseGroup =====
 
 function ExerciseGroup({
@@ -968,7 +1034,7 @@ export default function SessionEditor({
   }
 
   return (
-    <div className={embedded ? 'flex flex-col min-h-full' : 'app-page-session'}>
+    <div className={embedded ? undefined : 'app-page-session'}>
       {/* ヘッダー */}
       <div className="sticky top-0 z-40 bg-[#111111]/95 backdrop-blur-sm border-b border-white/10 shrink-0">
         <div className="flex items-center h-12 px-2">
@@ -1013,7 +1079,7 @@ export default function SessionEditor({
         defaultOpen={menuSteps.length === 0}
       />
 
-      <div className="px-4 pt-4 space-y-6 flex-1 pb-4">
+      <div className="px-4 pt-4 space-y-6 pb-4">
         {/* 日付・ステータス */}
         <div className="space-y-3">
           <div className="flex items-center gap-3">
@@ -1054,6 +1120,7 @@ export default function SessionEditor({
           </div>
         ) : (
           session.blocks.map((block, idx) => {
+            const isLap = isLapBlock(block)
             const order = getExerciseOrder(block.rows)
             const groupMap = groupRowsByExercise(block.rows)
             const isSuperset = block.type === 'スーパーセット'
@@ -1062,7 +1129,11 @@ export default function SessionEditor({
               <div key={block.id} className="space-y-2">
                 <div className="flex items-center gap-2 px-0.5">
                   <span className="text-xs font-bold text-gray-600">Block {idx + 1}</span>
-                  {block.rows.length === 0 ? (
+                  {isLap ? (
+                    <Badge variant="outline" className="text-[10px] font-semibold border bg-orange-500/20 text-orange-300 border-orange-500/30">
+                      ラップ計測
+                    </Badge>
+                  ) : block.rows.length === 0 ? (
                     <button
                       type="button"
                       onClick={() => openBlockPickerForChange(block.id)}
@@ -1086,7 +1157,12 @@ export default function SessionEditor({
                   )}
                 </div>
 
-                {isSuperset ? (
+                {isLap ? (
+                  <LapBlockView
+                    rows={block.rows}
+                    onDelete={deleteRow}
+                  />
+                ) : isSuperset ? (
                   <SupersetBlockView
                     block={block}
                     onDelete={deleteRow}

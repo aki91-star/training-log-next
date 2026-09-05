@@ -26,7 +26,6 @@ import {
   HYROX_OFFICIAL_MENU_ID,
 } from '@/lib/hyrox-official-menu'
 import {
-  appendLapSummaryToNote,
   applyLapsToSession,
 } from '@/lib/lap-to-session'
 import {
@@ -45,8 +44,13 @@ const STORAGE_KEYS = {
   lastMenuId: 'training-log:last-menu-id',
   activeSessionId: 'training-log:active-session-id',
   monthlyGoalDays: 'training-log:monthly-goal-days',
+  timerAlarmEnabled: 'training-log:timer-alarm-enabled',
+  keepScreenOnEnabled: 'training-log:keep-screen-on-enabled',
   seeded: 'training-log:seeded-v1',
 } as const
+
+const DEFAULT_TIMER_ALARM_ENABLED = true
+const DEFAULT_KEEP_SCREEN_ON_ENABLED = true
 
 function clampMonthlyGoalDays(value: number): number {
   return Math.min(31, Math.max(1, Math.round(value)))
@@ -107,6 +111,8 @@ function seedInitialState(): {
 
 type WorkoutPreferences = {
   monthlyGoalDays: number
+  timerAlarmEnabled?: boolean
+  keepScreenOnEnabled?: boolean
   exercises?: ExerciseMaster[]
 }
 
@@ -121,6 +127,8 @@ type WorkoutStoreValue = {
   activeRun: ActiveTimerRun | null
   lastMenuId: string | null
   monthlyGoalDays: number
+  timerAlarmEnabled: boolean
+  keepScreenOnEnabled: boolean
 
   getSession: (id: string) => Session | undefined
   getActiveSession: () => Session | undefined
@@ -153,6 +161,8 @@ type WorkoutStoreValue = {
   startFromLastMenu: () => { session: Session; menu: WorkoutMenuTemplate } | null
 
   setMonthlyGoalDays: (days: number) => void
+  setTimerAlarmEnabled: (enabled: boolean) => void
+  setKeepScreenOnEnabled: (enabled: boolean) => void
 }
 
 const WorkoutContext = createContext<WorkoutStoreValue | null>(null)
@@ -185,6 +195,8 @@ async function uploadCloudWorkoutData(
         menuTemplates,
         preferences: {
           monthlyGoalDays: preferences.monthlyGoalDays,
+          timerAlarmEnabled: preferences.timerAlarmEnabled,
+          keepScreenOnEnabled: preferences.keepScreenOnEnabled,
           exercises: preferences.exercises,
         },
       }),
@@ -226,6 +238,8 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [activeRun, setActiveRun] = useState<ActiveTimerRun | null>(null)
   const [lastMenuId, setLastMenuIdState] = useState<string | null>(null)
   const [monthlyGoalDays, setMonthlyGoalDaysState] = useState(DEFAULT_MONTHLY_GOAL_DAYS)
+  const [timerAlarmEnabled, setTimerAlarmEnabledState] = useState(DEFAULT_TIMER_ALARM_ENABLED)
+  const [keepScreenOnEnabled, setKeepScreenOnEnabledState] = useState(DEFAULT_KEEP_SCREEN_ON_ENABLED)
   const skipNextCloudSave = useRef(false)
   const sessionsRef = useRef(sessions)
   const draftSessionsRef = useRef(draftSessions)
@@ -277,6 +291,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       clampMonthlyGoalDays(
         loadJson(STORAGE_KEYS.monthlyGoalDays, DEFAULT_MONTHLY_GOAL_DAYS),
       ),
+    )
+    setTimerAlarmEnabledState(
+      loadJson(STORAGE_KEYS.timerAlarmEnabled, DEFAULT_TIMER_ALARM_ENABLED),
+    )
+    setKeepScreenOnEnabledState(
+      loadJson(STORAGE_KEYS.keepScreenOnEnabled, DEFAULT_KEEP_SCREEN_ON_ENABLED),
     )
     setHydrated(true)
   }, [])
@@ -339,6 +359,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
             cloud.preferences?.monthlyGoalDays ?? DEFAULT_MONTHLY_GOAL_DAYS,
           ),
         )
+        if (typeof cloud.preferences?.timerAlarmEnabled === 'boolean') {
+          setTimerAlarmEnabledState(cloud.preferences.timerAlarmEnabled)
+        }
+        if (typeof cloud.preferences?.keepScreenOnEnabled === 'boolean') {
+          setKeepScreenOnEnabledState(cloud.preferences.keepScreenOnEnabled)
+        }
       } else {
         const localSessions = loadJson(STORAGE_KEYS.sessions, sessions)
           .filter(isPersistableSession)
@@ -347,8 +373,18 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         const localMonthlyGoalDays = clampMonthlyGoalDays(
           loadJson(STORAGE_KEYS.monthlyGoalDays, DEFAULT_MONTHLY_GOAL_DAYS),
         )
+        const localTimerAlarmEnabled = loadJson(
+          STORAGE_KEYS.timerAlarmEnabled,
+          DEFAULT_TIMER_ALARM_ENABLED,
+        )
+        const localKeepScreenOnEnabled = loadJson(
+          STORAGE_KEYS.keepScreenOnEnabled,
+          DEFAULT_KEEP_SCREEN_ON_ENABLED,
+        )
         await uploadCloudWorkoutData(localSessions, localMenus, {
           monthlyGoalDays: localMonthlyGoalDays,
+          timerAlarmEnabled: localTimerAlarmEnabled,
+          keepScreenOnEnabled: localKeepScreenOnEnabled,
           exercises: localExercises,
         })
       }
@@ -375,12 +411,24 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       void uploadCloudWorkoutData(sessionsForApp, menuTemplates, {
         monthlyGoalDays,
+        timerAlarmEnabled,
+        keepScreenOnEnabled,
         exercises,
       })
     }, 800)
 
     return () => window.clearTimeout(timer)
-  }, [sessionsForApp, menuTemplates, exercises, monthlyGoalDays, hydrated, isAuthenticated, cloudSynced])
+  }, [
+    sessionsForApp,
+    menuTemplates,
+    exercises,
+    monthlyGoalDays,
+    timerAlarmEnabled,
+    keepScreenOnEnabled,
+    hydrated,
+    isAuthenticated,
+    cloudSynced,
+  ])
 
   useEffect(() => {
     if (!hydrated) return
@@ -404,6 +452,18 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && !cloudSynced) return
     saveJson(STORAGE_KEYS.monthlyGoalDays, monthlyGoalDays)
   }, [monthlyGoalDays, hydrated, isAuthenticated, cloudSynced])
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated && !cloudSynced) return
+    saveJson(STORAGE_KEYS.timerAlarmEnabled, timerAlarmEnabled)
+  }, [timerAlarmEnabled, hydrated, isAuthenticated, cloudSynced])
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated && !cloudSynced) return
+    saveJson(STORAGE_KEYS.keepScreenOnEnabled, keepScreenOnEnabled)
+  }, [keepScreenOnEnabled, hydrated, isAuthenticated, cloudSynced])
 
   const getSession = useCallback(
     (id: string) => sessionsForApp.find(s => s.id === id) ?? draftSessions[id],
@@ -588,7 +648,6 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     let updated = applyLapsToSession(session, run)
     updated = { ...updated, plannedMenu: cloneSteps(run.steps), linkedTimerRunId: run.id }
     if (finalize) {
-      updated = appendLapSummaryToNote(updated, run)
       updated = { ...updated, status: 'completed' }
     }
     updateSession(updated)
@@ -705,6 +764,14 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setMonthlyGoalDaysState(clampMonthlyGoalDays(days))
   }, [])
 
+  const setTimerAlarmEnabled = useCallback((enabled: boolean) => {
+    setTimerAlarmEnabledState(enabled)
+  }, [])
+
+  const setKeepScreenOnEnabled = useCallback((enabled: boolean) => {
+    setKeepScreenOnEnabledState(enabled)
+  }, [])
+
   const value = useMemo<WorkoutStoreValue>(() => ({
     hydrated,
     cloudSynced,
@@ -716,6 +783,8 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     activeRun,
     lastMenuId,
     monthlyGoalDays,
+    timerAlarmEnabled,
+    keepScreenOnEnabled,
     getSession,
     getActiveSession,
     setActiveSessionId,
@@ -740,14 +809,16 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     tickTimer,
     startFromLastMenu,
     setMonthlyGoalDays,
+    setTimerAlarmEnabled,
+    setKeepScreenOnEnabled,
   }), [
     hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, exercises, activeSessionId, activeRun, lastMenuId,
-    monthlyGoalDays,
+    monthlyGoalDays, timerAlarmEnabled, keepScreenOnEnabled,
     getSession, getActiveSession, setActiveSessionId, createSession, updateSession,
     deleteSession, ensureSession, saveMenuTemplate, deleteMenuTemplate, duplicateMenuTemplate,
     getLastUsedMenu, setLastUsedMenu, saveExercise, deleteExercise, syncMenuToSession, startTimerRun,
     pauseTimerRun, resumeTimerRun, recordLap, completeTimerRun, resetTimerRun,
-    tickTimer, startFromLastMenu, setMonthlyGoalDays,
+    tickTimer, startFromLastMenu, setMonthlyGoalDays, setTimerAlarmEnabled, setKeepScreenOnEnabled,
   ])
 
   if (!hydrated || (isAuthenticated && !cloudSynced)) {

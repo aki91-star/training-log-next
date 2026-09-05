@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { formatCountdown } from '@/lib/format-time'
+import { playTimerAlarm, unlockTimerAudio } from '@/lib/timer-alarm'
 import { useInterval } from '@/lib/use-interval'
+import { useWakeLock } from '@/lib/use-wake-lock'
+import { useWorkoutStore } from '@/lib/workout-store'
 
 const DEFAULT_HIIT = { work: 40, rest: 20, rounds: 8, prepare: 10 }
 
@@ -17,6 +20,7 @@ function nowMs() {
 type HiitPhase = 'prepare' | 'work' | 'rest' | 'done'
 
 export default function HiitTimer() {
+  const { timerAlarmEnabled, keepScreenOnEnabled } = useWorkoutStore()
   const [work, setWork] = useState(DEFAULT_HIIT.work)
   const [rest, setRest] = useState(DEFAULT_HIIT.rest)
   const [rounds, setRounds] = useState(DEFAULT_HIIT.rounds)
@@ -26,6 +30,8 @@ export default function HiitTimer() {
   const [remaining, setRemaining] = useState(DEFAULT_HIIT.prepare)
   const [running, setRunning] = useState(false)
   const endAtRef = useRef<number | null>(null)
+
+  useWakeLock(running && keepScreenOnEnabled)
 
   const phaseDuration =
     phase === 'prepare' ? prepare : phase === 'work' ? work : phase === 'rest' ? rest : 0
@@ -63,10 +69,14 @@ export default function HiitTimer() {
     if (!running || endAtRef.current === null || phase === 'done') return
     const left = Math.max(0, (endAtRef.current - nowMs()) / 1000)
     setRemaining(left)
-    if (left <= 0) advancePhase()
+    if (left <= 0) {
+      playTimerAlarm(timerAlarmEnabled)
+      advancePhase()
+    }
   }, running ? 100 : null)
 
   function start() {
+    unlockTimerAudio()
     setPhase('prepare')
     setRound(1)
     setRemaining(prepare)

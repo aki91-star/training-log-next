@@ -6,6 +6,11 @@ import MenuEditor from '@/components/menu-editor'
 import { Button } from '@/components/ui/button'
 import { useWorkoutStore, HYROX_OFFICIAL_MENU_ID } from '@/lib/workout-store'
 import { cloneSteps, createMenuTemplate, type LapStep } from '@/lib/workout-types'
+import {
+  applyHyroxDivisionWeights,
+  HYROX_DIVISION_LABELS,
+  type HyroxDivision,
+} from '@/lib/hyrox-official-menu'
 
 function sourceLabel(source: string) {
   switch (source) {
@@ -32,6 +37,7 @@ export default function MenuManagementView({
   const [name, setName] = useState('')
   const [steps, setSteps] = useState<LapStep[]>([])
   const [saved, setSaved] = useState(false)
+  const [selectedDivision, setSelectedDivision] = useState<HyroxDivision | null>(null)
 
   const editingTemplate = editingId
     ? menuTemplates.find(m => m.id === editingId)
@@ -72,7 +78,16 @@ export default function MenuManagementView({
   function handleSave() {
     const trimmed = name.trim()
     if (!trimmed) return
-    if (isOfficial) return
+
+    if (isOfficial && editingTemplate) {
+      saveMenuTemplate({
+        ...editingTemplate,
+        steps: cloneSteps(steps),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+      return
+    }
 
     if (isNew) {
       saveMenuTemplate(createMenuTemplate(trimmed, steps, 'custom'))
@@ -87,6 +102,11 @@ export default function MenuManagementView({
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     backToList()
+  }
+
+  function applyDivision(division: HyroxDivision) {
+    setSelectedDivision(division)
+    setSteps(prev => applyHyroxDivisionWeights(prev, division))
   }
 
   function handleDelete() {
@@ -127,8 +147,30 @@ export default function MenuManagementView({
           <div className="flex items-start gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2.5">
             <Lock size={14} className="text-orange-400 shrink-0 mt-0.5" />
             <p className="text-xs text-orange-200/90">
-              HYROX正規メニューは編集できません。変更したい場合は複製してカスタムメニューを作成してください。
+              種目・距離・回数は変更できません。重量のみ編集できます。カテゴリを選ぶと公式重量が自動入力されます。
             </p>
+          </div>
+        )}
+
+        {isOfficial && (
+          <div>
+            <p className="text-xs text-gray-500 mb-2">カテゴリ（公式重量を一括入力）</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.entries(HYROX_DIVISION_LABELS) as [HyroxDivision, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => applyDivision(key)}
+                  className={`text-xs px-3 py-2 rounded-lg border transition-colors ${
+                    selectedDivision === key
+                      ? 'bg-orange-500/20 border-orange-500/50 text-orange-200'
+                      : 'bg-[#252525] border-white/10 text-gray-300 hover:border-orange-500/30'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -148,7 +190,7 @@ export default function MenuManagementView({
           <MenuEditor
             steps={steps}
             onChange={setSteps}
-            readOnly={isOfficial}
+            weightOnlyEdit={isOfficial}
           />
         </div>
 
@@ -158,9 +200,17 @@ export default function MenuManagementView({
               <Button
                 type="button"
                 className="flex-1 bg-orange-500 hover:bg-orange-400"
+                onClick={handleSave}
+              >
+                重量を保存
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/10"
                 onClick={() => handleDuplicate(HYROX_OFFICIAL_MENU_ID)}
               >
-                <Copy size={14} /> 複製して編集
+                <Copy size={14} /> 複製
               </Button>
               <Button type="button" variant="outline" className="border-white/10" onClick={backToList}>
                 閉じる

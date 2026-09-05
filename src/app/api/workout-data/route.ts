@@ -5,6 +5,8 @@ import type { WorkoutMenuTemplate } from '@/lib/workout-types'
 
 type WorkoutPreferences = {
   monthlyGoalDays: number
+  timerAlarmEnabled: boolean
+  keepScreenOnEnabled: boolean
   exercises?: ExerciseMaster[]
 }
 
@@ -19,11 +21,17 @@ function clampMonthlyGoalDays(value: unknown): number {
   return Math.min(31, Math.max(1, Math.round(n)))
 }
 
+function parseBool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
 function parsePreferences(raw: unknown): WorkoutPreferences {
   const obj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const exercises = Array.isArray(obj.exercises) ? obj.exercises as ExerciseMaster[] : undefined
   return {
     monthlyGoalDays: clampMonthlyGoalDays(obj.monthlyGoalDays),
+    timerAlarmEnabled: parseBool(obj.timerAlarmEnabled, true),
+    keepScreenOnEnabled: parseBool(obj.keepScreenOnEnabled, true),
     exercises,
   }
 }
@@ -57,7 +65,11 @@ export async function GET() {
     return Response.json({
       sessions: [],
       menuTemplates: [] satisfies WorkoutMenuTemplate[],
-      preferences: { monthlyGoalDays: DEFAULT_MONTHLY_GOAL_DAYS },
+      preferences: {
+        monthlyGoalDays: DEFAULT_MONTHLY_GOAL_DAYS,
+        timerAlarmEnabled: true,
+        keepScreenOnEnabled: true,
+      },
     })
   }
 

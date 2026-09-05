@@ -40,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja" className={`${geist.variable} dark h-full antialiased`}>
+    <html lang="ja" className={`${geist.variable} dark min-h-full antialiased`}>
       <body className="min-h-full text-white">
         <Providers>
           <div className="app-shell">{children}</div>
