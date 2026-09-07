@@ -1,5 +1,5 @@
 import { auth } from '@/auth'
-import { DEFAULT_MONTHLY_GOAL_DAYS, type ExerciseMaster, type Session } from '@/lib/data'
+import { DEFAULT_MONTHLY_GOAL_DAYS, type ExerciseMaster, type MainCategory, type Session } from '@/lib/data'
 import { getSql, isDatabaseConfigured } from '@/lib/db'
 import type { WorkoutMenuTemplate } from '@/lib/workout-types'
 
@@ -8,6 +8,7 @@ type WorkoutPreferences = {
   timerAlarmEnabled: boolean
   keepScreenOnEnabled: boolean
   exercises?: ExerciseMaster[]
+  customSubCategories?: Record<MainCategory, string[]>
 }
 
 type WorkoutPayload = {
@@ -25,6 +26,27 @@ function parseBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
+function parseCustomSubCategories(raw: unknown): Record<MainCategory, string[]> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const obj = raw as Record<string, unknown>
+  const result: Record<MainCategory, string[]> = {
+    筋トレ: [],
+    有酸素: [],
+    ファンクショナル: [],
+  }
+  let hasData = false
+  for (const main of Object.keys(result) as MainCategory[]) {
+    const value = obj[main]
+    if (!Array.isArray(value)) continue
+    const subs = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    if (subs.length > 0) {
+      result[main] = subs
+      hasData = true
+    }
+  }
+  return hasData ? result : undefined
+}
+
 function parsePreferences(raw: unknown): WorkoutPreferences {
   const obj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const exercises = Array.isArray(obj.exercises) ? obj.exercises as ExerciseMaster[] : undefined
@@ -33,6 +55,7 @@ function parsePreferences(raw: unknown): WorkoutPreferences {
     timerAlarmEnabled: parseBool(obj.timerAlarmEnabled, true),
     keepScreenOnEnabled: parseBool(obj.keepScreenOnEnabled, true),
     exercises,
+    customSubCategories: parseCustomSubCategories(obj.customSubCategories),
   }
 }
 

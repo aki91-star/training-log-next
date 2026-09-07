@@ -2,10 +2,8 @@
 
 export type MainCategory = '筋トレ' | '有酸素' | 'ファンクショナル'
 
-export type SubCategory =
-  | '胸' | '背中' | '肩' | '脚' | '腕' | '腹筋'
-  | 'ラン' | 'バイク' | 'クロストレーナー' | 'ステアクライマー'
-  | 'HYROX'
+/** ユーザー定義を含む自由入力の小カテゴリ名 */
+export type SubCategory = string
 
 export type BlockType = '単体' | 'スーパーセット' | 'サーキット' | 'インターバル'
 
@@ -141,7 +139,7 @@ export const exerciseMaster: ExerciseMaster[] = [
     id: 'ex-007',
     name: 'ロードラン',
     mainCategory: '有酸素',
-    subCategory: 'ラン',
+    subCategory: '',
     metrics: ['distance', 'time', 'rpe', 'note'],
     completionCondition: ['distance'],
     progressMetric: 'time',
@@ -150,7 +148,7 @@ export const exerciseMaster: ExerciseMaster[] = [
     id: 'ex-008',
     name: 'トレッドミルラン',
     mainCategory: '有酸素',
-    subCategory: 'ラン',
+    subCategory: '',
     metrics: ['distance', 'time', 'rpe', 'note'],
     completionCondition: ['distance', 'time'],
     progressMetric: 'time',
@@ -186,10 +184,75 @@ export const exerciseMaster: ExerciseMaster[] = [
 
 export const MAIN_CATEGORIES: MainCategory[] = ['筋トレ', '有酸素', 'ファンクショナル']
 
-export const SUB_CATEGORIES: Record<MainCategory, SubCategory[]> = {
+export const DEFAULT_SUB_CATEGORIES: Record<MainCategory, SubCategory[]> = {
   筋トレ: ['胸', '背中', '肩', '脚', '腕', '腹筋'],
-  有酸素: ['ラン', 'バイク', 'クロストレーナー', 'ステアクライマー'],
-  ファンクショナル: ['HYROX'],
+  有酸素: [],
+  ファンクショナル: ['HYROX', 'その他'],
+}
+
+/** 小カテゴリをユーザーが明示的に作るまで使わない大カテゴリ */
+export const SUB_CATEGORY_OPT_IN_MAINS: MainCategory[] = ['有酸素']
+
+export function hasSubCategoryGroups(
+  main: MainCategory,
+  customSubs: Partial<Record<MainCategory, string[]>> = {},
+): boolean {
+  if (!SUB_CATEGORY_OPT_IN_MAINS.includes(main)) return true
+  return (customSubs[main]?.length ?? 0) > 0
+}
+
+export function formatExerciseCategoryLabel(ex: Pick<ExerciseMaster, 'mainCategory' | 'subCategory'>): string {
+  if (!ex.subCategory.trim()) return ex.mainCategory
+  return `${ex.mainCategory} · ${ex.subCategory}`
+}
+
+/** @deprecated DEFAULT_SUB_CATEGORIES を使用 */
+export const SUB_CATEGORIES = DEFAULT_SUB_CATEGORIES
+
+export function collectSubCategories(
+  main: MainCategory,
+  exercises: ExerciseMaster[],
+  customSubs: Partial<Record<MainCategory, string[]>> = {},
+): SubCategory[] {
+  const seen = new Set<string>()
+  const result: SubCategory[] = []
+  const add = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed || seen.has(trimmed)) return
+    seen.add(trimmed)
+    result.push(trimmed)
+  }
+
+  if (SUB_CATEGORY_OPT_IN_MAINS.includes(main)) {
+    for (const sub of customSubs[main] ?? []) add(sub)
+    return result
+  }
+
+  for (const sub of DEFAULT_SUB_CATEGORIES[main]) add(sub)
+  for (const sub of customSubs[main] ?? []) add(sub)
+  for (const ex of exercises) {
+    if (ex.mainCategory === main) add(ex.subCategory)
+  }
+  return result
+}
+
+export function normalizeExerciseSubCategory(
+  exercise: ExerciseMaster,
+  customSubs: Partial<Record<MainCategory, string[]>> = {},
+): ExerciseMaster {
+  if (exercise.mainCategory !== '有酸素') return exercise
+  const sub = exercise.subCategory.trim()
+  if (!sub) return exercise
+  const custom = customSubs['有酸素'] ?? []
+  if (custom.includes(sub)) return exercise
+  return { ...exercise, subCategory: '' }
+}
+
+export function normalizeExercises(
+  exercises: ExerciseMaster[],
+  customSubs: Partial<Record<MainCategory, string[]>> = {},
+): ExerciseMaster[] {
+  return exercises.map(ex => normalizeExerciseSubCategory(ex, customSubs))
 }
 
 export function defaultMetricsForCategory(
@@ -551,7 +614,7 @@ export function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-/** 秒数を時・分・秒の入力用文字列に分解 */
+/** 秒数を時・分・秒の入力用文字列に分解（0 のフィールドは空文字） */
 export function decomposeTimeSeconds(total?: number): { h: string; m: string; s: string } {
   if (total == null || total <= 0) return { h: '', m: '', s: '' }
   const hi = Math.floor(total / 3600)
@@ -559,8 +622,8 @@ export function decomposeTimeSeconds(total?: number): { h: string; m: string; s:
   const si = total % 60
   return {
     h: hi > 0 ? String(hi) : '',
-    m: hi > 0 || mi > 0 ? String(mi).padStart(2, '0') : '',
-    s: hi > 0 || mi > 0 ? String(si).padStart(2, '0') : String(si),
+    m: mi > 0 ? String(mi) : '',
+    s: si > 0 ? String(si) : '',
   }
 }
 
@@ -701,4 +764,181 @@ export function getUniqueTrainingDatesInMonth(
 
 export function getSessionsOnDate(sessions: Session[], dateStr: string): Session[] {
   return sessions.filter(s => s.date === dateStr)
+}
+
+/** ラップ計測ブロックか（転記対象外） */
+export function isLapBlockId(blockId: string): boolean {
+  return blockId === 'lap-timer-block' || blockId.startsWith('block-lap-')
+}
+
+/** 種目の直近履歴（現在セッションを除く、日付が最も新しいセッション） */
+export interface ExerciseHistorySnapshot {
+  sessionId: string
+  sessionName: string
+  date: string
+  rows: ExerciseRow[]
+}
+
+export function findPreviousExerciseHistory(
+  sessions: Session[],
+  exerciseId: string,
+  excludeSessionId?: string,
+): ExerciseHistorySnapshot | null {
+  const sorted = [...sessions]
+    .filter(s => s.id !== excludeSessionId)
+    .sort((a, b) => {
+      const dateCmp = b.date.localeCompare(a.date)
+      if (dateCmp !== 0) return dateCmp
+      return b.id.localeCompare(a.id)
+    })
+
+  for (const session of sorted) {
+    const rows: ExerciseRow[] = []
+    for (const block of session.blocks) {
+      if (isLapBlockId(block.id)) continue
+      for (const row of block.rows) {
+        if (row.exerciseId === exerciseId) rows.push(row)
+      }
+    }
+    if (rows.length > 0) {
+      rows.sort((a, b) => a.round - b.round)
+      return {
+        sessionId: session.id,
+        sessionName: session.name,
+        date: session.date,
+        rows,
+      }
+    }
+  }
+  return null
+}
+
+/** 履歴セッションから記録へ転記できる内容があるか */
+export function hasTransferableStructure(session: Session): boolean {
+  const hasExerciseBlocks = session.blocks.some(
+    b => !isLapBlockId(b.id) && b.rows.length > 0,
+  )
+  return hasExerciseBlocks || (session.plannedMenu?.length ?? 0) > 0
+}
+
+/** セッション構造（種目・セット数・ブロック種別）を複製し、メトリクスは空にする */
+export function cloneSessionStructure(
+  source: Session,
+  opts: { id: string; date: string; name?: string },
+): Session {
+  const base = Date.now()
+  const blocks = source.blocks
+    .filter(b => !isLapBlockId(b.id))
+    .map((block, blockIdx) => ({
+      id: `block-clone-${base}-${blockIdx}`,
+      type: block.type,
+      order: blockIdx + 1,
+      rows: block.rows.map((row, rowIdx) => ({
+        id: `row-clone-${base}-${blockIdx}-${rowIdx}`,
+        exerciseId: row.exerciseId,
+        exerciseName: row.exerciseName,
+        round: row.round,
+        order: row.order,
+        status: 'draft' as RowStatus,
+        metrics: {},
+      })),
+    }))
+
+  return {
+    id: opts.id,
+    date: opts.date,
+    name: opts.name ?? source.name,
+    status: 'active',
+    blocks,
+  }
+}
+
+export type StatMetric = 'sets' | 'tonnage' | 'cardioKm' | 'hyroxCount' | 'sessions'
+
+export interface TimeSeriesPoint {
+  label: string
+  date: string
+  value: number
+}
+
+export interface MonthStats {
+  sessions: number
+  tonnage: number
+  cardioKm: number
+  sets: number
+}
+
+export function getMetricValue(sessions: Session[], metric: StatMetric): number {
+  switch (metric) {
+    case 'sets':
+      return sessions.reduce((s, sess) => s + countCompletedRows(sess), 0)
+    case 'tonnage':
+      return sessions.reduce((s, sess) => s + calcTonnage(sess), 0)
+    case 'cardioKm':
+      return sessions.reduce((s, sess) => s + calcCardioDistanceKm(sess), 0)
+    case 'hyroxCount':
+      return sessions.filter(sessionHasHyrox).length
+    case 'sessions':
+      return sessions.length
+  }
+}
+
+export function aggregateMonthStats(sessions: Session[], year: number, month: number): MonthStats {
+  const monthSessions = sessions.filter(s => {
+    const d = new Date(`${s.date}T12:00:00`)
+    return d.getFullYear() === year && d.getMonth() === month
+  })
+  return {
+    sessions: monthSessions.length,
+    tonnage: getMetricValue(monthSessions, 'tonnage'),
+    cardioKm: getMetricValue(monthSessions, 'cardioKm'),
+    sets: getMetricValue(monthSessions, 'sets'),
+  }
+}
+
+export function aggregateStatsByWeek(
+  sessions: Session[],
+  refDate: Date,
+  metric: StatMetric,
+  weeksBack = 12,
+): TimeSeriesPoint[] {
+  const points: TimeSeriesPoint[] = []
+  for (let i = 0; i < weeksBack; i++) {
+    const offsetWeeks = i - (weeksBack - 1)
+    const weekSessions = getSessionsInWeek(sessions, refDate, offsetWeeks)
+    const { start } = getWeekRange(refDate)
+    const weekStart = new Date(start)
+    weekStart.setDate(weekStart.getDate() + offsetWeeks * 7)
+    points.push({
+      label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}`,
+      date: `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`,
+      value: getMetricValue(weekSessions, metric),
+    })
+  }
+  return points
+}
+
+export function aggregateStatsByMonth(
+  sessions: Session[],
+  refDate: Date,
+  metric: StatMetric,
+  monthsBack = 6,
+): TimeSeriesPoint[] {
+  const points: TimeSeriesPoint[] = []
+  for (let i = 0; i < monthsBack; i++) {
+    const offsetMonths = i - (monthsBack - 1)
+    const d = new Date(refDate.getFullYear(), refDate.getMonth() + offsetMonths, 1)
+    const year = d.getFullYear()
+    const month = d.getMonth()
+    const monthSessions = sessions.filter(s => {
+      const sd = new Date(`${s.date}T12:00:00`)
+      return sd.getFullYear() === year && sd.getMonth() === month
+    })
+    points.push({
+      label: `${month + 1}月`,
+      date: `${year}-${String(month + 1).padStart(2, '0')}-01`,
+      value: getMetricValue(monthSessions, metric),
+    })
+  }
+  return points
 }

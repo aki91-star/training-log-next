@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { TrendingUp, Pencil, Trash2 } from 'lucide-react'
+import { TrendingUp, Pencil, Trash2, ClipboardCopy } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   calcEstimatedRM, formatTime, formatDistance, isRowCompleted, isPersistableSession,
+  hasTransferableStructure,
 } from '@/lib/data'
 import {
   BLOCK_TYPE_CLS,
@@ -31,10 +32,12 @@ export default function SessionDetailSheet({
   sessionId,
   open,
   onOpenChange,
+  onTransferToRecording,
 }: {
   sessionId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onTransferToRecording?: (sessionId: string) => void
 }) {
   const { getSession, updateSession, deleteSession } = useWorkoutStore()
   const session = sessionId ? getSession(sessionId) : null
@@ -190,6 +193,19 @@ export default function SessionDetailSheet({
                   </div>
                   )
                 })}
+                {hasTransferableStructure(session) && onTransferToRecording && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onTransferToRecording(session.id)
+                      onOpenChange(false)
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-orange-500/40 text-orange-300 font-medium py-3 rounded-xl transition-colors"
+                  >
+                    <ClipboardCopy size={16} />
+                    記録に転記
+                  </button>
+                )}
                 <Link
                   href={`/session/${session.id}`}
                   className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 text-white font-medium py-3 rounded-xl transition-colors"

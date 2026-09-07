@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Dumbbell, Scale, PersonStanding, Zap } from 'lucide-react'
 import SessionDetailSheet from '@/components/session-detail-sheet'
+import StatChartSheet, { type StatChartConfig } from '@/components/stat-chart-sheet'
 import {
   mockSessions,
   DEFAULT_MONTHLY_GOAL_DAYS,
@@ -31,15 +32,21 @@ function StatCard({
   label,
   value,
   delta,
+  onClick,
 }: {
   icon: React.ReactNode
   label: string
   value: string
   delta: string
+  onClick?: () => void
 }) {
   const isPositive = delta.startsWith('+')
   return (
-    <div className="bg-[#1a1a1a] border border-white/8 rounded-xl p-3.5">
+    <button
+      type="button"
+      onClick={onClick}
+      className="bg-[#1a1a1a] border border-white/8 rounded-xl p-3.5 text-left hover:bg-[#222] active:scale-[0.98] transition-all cursor-pointer"
+    >
       <div className="flex items-center gap-1.5 text-gray-500 mb-2">
         <span className="text-orange-400">{icon}</span>
         <span className="text-[10px] font-medium uppercase tracking-wide">{label}</span>
@@ -48,7 +55,7 @@ function StatCard({
       <p className={`text-[11px] mt-1 ${isPositive ? 'text-orange-400' : 'text-gray-500'}`}>
         先週比 {delta}
       </p>
-    </div>
+    </button>
   )
 }
 
@@ -57,14 +64,17 @@ export default function HomeSummary({
   compact = false,
   sessions: sessionsProp,
   monthlyGoalDays = DEFAULT_MONTHLY_GOAL_DAYS,
+  onTransferToRecording,
 }: {
   today?: Date
   compact?: boolean
   sessions?: import('@/lib/data').Session[]
   monthlyGoalDays?: number
+  onTransferToRecording?: (sessionId: string) => void
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [dayPicker, setDayPicker] = useState<Session[] | null>(null)
+  const [chartConfig, setChartConfig] = useState<StatChartConfig | null>(null)
 
   const year = today.getFullYear()
   const month = today.getMonth()
@@ -196,24 +206,28 @@ export default function HomeSummary({
             label="今週のセット"
             value={`${thisWeekStats.sets} sets`}
             delta={formatDelta(thisWeekStats.sets, lastWeekStats.sets)}
+            onClick={() => setChartConfig({ metric: 'sets', period: 'week', title: '週間セット数', unit: 'sets' })}
           />
           <StatCard
             icon={<Scale size={14} />}
             label="総負荷量"
             value={`${thisWeekStats.tonnage.toFixed(1)} t`}
             delta={formatDelta(thisWeekStats.tonnage, lastWeekStats.tonnage, 1)}
+            onClick={() => setChartConfig({ metric: 'tonnage', period: 'week', title: '週間総負荷', unit: 't', decimals: 1 })}
           />
           <StatCard
             icon={<PersonStanding size={14} />}
             label="有酸素"
             value={`${thisWeekStats.cardioKm.toFixed(1)} km`}
             delta={formatDelta(thisWeekStats.cardioKm, lastWeekStats.cardioKm, 1)}
+            onClick={() => setChartConfig({ metric: 'cardioKm', period: 'week', title: '週間有酸素距離', unit: 'km', decimals: 1 })}
           />
           <StatCard
             icon={<Zap size={14} />}
             label="HYROX系"
             value={`${thisWeekStats.hyroxCount} time${thisWeekStats.hyroxCount !== 1 ? 's' : ''}`}
             delta={formatDelta(thisWeekStats.hyroxCount, lastWeekStats.hyroxCount)}
+            onClick={() => setChartConfig({ metric: 'hyroxCount', period: 'week', title: '週間HYROX', unit: '回' })}
           />
         </div>
       </div>
@@ -222,6 +236,15 @@ export default function HomeSummary({
         sessionId={selectedSessionId}
         open={!!selectedSessionId}
         onOpenChange={open => !open && setSelectedSessionId(null)}
+        onTransferToRecording={onTransferToRecording}
+      />
+
+      <StatChartSheet
+        config={chartConfig}
+        sessions={sessions}
+        refDate={today}
+        open={!!chartConfig}
+        onOpenChange={open => !open && setChartConfig(null)}
       />
 
       {dayPicker && (

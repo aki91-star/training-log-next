@@ -4,11 +4,11 @@ import { useMemo, useState } from 'react'
 import { ChevronRight, Dumbbell, Plus, Scale, PersonStanding, Wind, Zap } from 'lucide-react'
 import HomeSummary from '@/components/home-summary'
 import SessionDetailSheet from '@/components/session-detail-sheet'
+import StatChartSheet, { type StatChartConfig } from '@/components/stat-chart-sheet'
 import { useWorkoutStore } from '@/lib/workout-store'
 import {
+  aggregateMonthStats,
   countCompletedRows,
-  calcTonnage,
-  calcCardioDistanceKm,
   type Session,
   type MainCategory,
 } from '@/lib/data'
@@ -40,49 +40,55 @@ function formatDateJP(dateStr: string) {
 export default function HistoryPane({
   onOpenSession,
   onStartNew,
+  onTransferToRecording,
 }: {
   onOpenSession: (sessionId: string) => void
   onStartNew: () => void
+  onTransferToRecording?: (sessionId: string) => void
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [chartConfig, setChartConfig] = useState<StatChartConfig | null>(null)
   const today = useMemo(() => new Date(), [])
   const { sessions, monthlyGoalDays } = useWorkoutStore()
 
-  const monthStats = useMemo(() => {
-    const year = today.getFullYear()
-    const month = today.getMonth()
-    const monthSessions = sessions.filter(s => {
-      const d = new Date(`${s.date}T12:00:00`)
-      return d.getFullYear() === year && d.getMonth() === month
-    })
-    return {
-      sessions: monthSessions.length,
-      tonnage: monthSessions.reduce((sum, s) => sum + calcTonnage(s), 0),
-      cardioKm: monthSessions.reduce((sum, s) => sum + calcCardioDistanceKm(s), 0),
-      sets: monthSessions.reduce((sum, s) => sum + countCompletedRows(s), 0),
-    }
-  }, [today, sessions])
+  const monthStats = useMemo(
+    () => aggregateMonthStats(sessions, today.getFullYear(), today.getMonth()),
+    [today, sessions],
+  )
+
+  const monthlyCards = [
+    { icon: <Scale size={14} />, label: '月間総負荷', value: `${monthStats.tonnage.toFixed(1)} t`, config: { metric: 'tonnage' as const, period: 'month' as const, title: '月間総負荷', unit: 't', decimals: 1 } },
+    { icon: <PersonStanding size={14} />, label: '月間有酸素', value: `${monthStats.cardioKm.toFixed(1)} km`, config: { metric: 'cardioKm' as const, period: 'month' as const, title: '月間有酸素距離', unit: 'km', decimals: 1 } },
+    { icon: <Dumbbell size={14} />, label: '月間セット', value: `${monthStats.sets} sets`, config: { metric: 'sets' as const, period: 'month' as const, title: '月間セット数', unit: 'sets' } },
+    { icon: <CalendarDaysIcon />, label: '月間セッション', value: `${monthStats.sessions} 回`, config: { metric: 'sessions' as const, period: 'month' as const, title: '月間セッション数', unit: '回' } },
+  ]
 
   return (
     <div className="space-y-4 pb-4">
       <div className="grid grid-cols-2 gap-2 px-4 lg:px-3">
-        {[
-          { icon: <Scale size={14} />, label: '月間総負荷', value: `${monthStats.tonnage.toFixed(1)} t` },
-          { icon: <PersonStanding size={14} />, label: '月間有酸素', value: `${monthStats.cardioKm.toFixed(1)} km` },
-          { icon: <Dumbbell size={14} />, label: '月間セット', value: `${monthStats.sets} sets` },
-          { icon: <CalendarDaysIcon />, label: '月間セッション', value: `${monthStats.sessions} 回` },
-        ].map(item => (
-          <div key={item.label} className="bg-[#1a1a1a] border border-white/8 rounded-xl p-3">
+        {monthlyCards.map(item => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => setChartConfig(item.config)}
+            className="bg-[#1a1a1a] border border-white/8 rounded-xl p-3 text-left hover:bg-[#222] active:scale-[0.98] transition-all cursor-pointer"
+          >
             <div className="flex items-center gap-1.5 text-gray-500 mb-1">
               <span className="text-orange-400">{item.icon}</span>
               <span className="text-[10px] uppercase tracking-wide">{item.label}</span>
             </div>
             <p className="text-base font-bold">{item.value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <HomeSummary today={today} compact sessions={sessions} monthlyGoalDays={monthlyGoalDays} />
+      <HomeSummary
+        today={today}
+        compact
+        sessions={sessions}
+        monthlyGoalDays={monthlyGoalDays}
+        onTransferToRecording={onTransferToRecording}
+      />
 
       <div className="px-4 lg:px-3">
         <button
@@ -169,6 +175,15 @@ export default function HistoryPane({
         sessionId={selectedId}
         open={!!selectedId}
         onOpenChange={open => !open && setSelectedId(null)}
+        onTransferToRecording={onTransferToRecording}
+      />
+
+      <StatChartSheet
+        config={chartConfig}
+        sessions={sessions}
+        refDate={today}
+        open={!!chartConfig}
+        onOpenChange={open => !open && setChartConfig(null)}
       />
     </div>
   )

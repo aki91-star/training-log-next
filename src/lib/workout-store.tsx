@@ -13,11 +13,16 @@ import {
 import { useSession } from 'next-auth/react'
 import {
   DEFAULT_MONTHLY_GOAL_DAYS,
+  collectSubCategories,
   exerciseMaster,
+  normalizeExercises,
   isBuiltInExercise,
+  cloneSessionStructure,
+  hasTransferableStructure,
   isPersistableSession,
   mockSessions,
   type ExerciseMaster,
+  type MainCategory,
   type Session,
 } from '@/lib/data'
 import { getLocalDateString } from '@/lib/date-utils'
@@ -46,8 +51,15 @@ const STORAGE_KEYS = {
   monthlyGoalDays: 'training-log:monthly-goal-days',
   timerAlarmEnabled: 'training-log:timer-alarm-enabled',
   keepScreenOnEnabled: 'training-log:keep-screen-on-enabled',
+  customSubCategories: 'training-log:custom-sub-categories',
   seeded: 'training-log:seeded-v1',
 } as const
+
+const EMPTY_CUSTOM_SUB_CATEGORIES: Record<MainCategory, string[]> = {
+  筋トレ: [],
+  有酸素: [],
+  ファンクショナル: [],
+}
 
 const DEFAULT_TIMER_ALARM_ENABLED = true
 const DEFAULT_KEEP_SCREEN_ON_ENABLED = true
@@ -114,6 +126,7 @@ type WorkoutPreferences = {
   timerAlarmEnabled?: boolean
   keepScreenOnEnabled?: boolean
   exercises?: ExerciseMaster[]
+  customSubCategories?: Record<MainCategory, string[]>
 }
 
 type WorkoutStoreValue = {
@@ -123,6 +136,7 @@ type WorkoutStoreValue = {
   sessions: Session[]
   menuTemplates: WorkoutMenuTemplate[]
   exercises: ExerciseMaster[]
+  customSubCategories: Record<MainCategory, string[]>
   activeSessionId: string
   activeRun: ActiveTimerRun | null
   lastMenuId: string | null
@@ -147,6 +161,8 @@ type WorkoutStoreValue = {
 
   saveExercise: (exercise: ExerciseMaster) => void
   deleteExercise: (id: string) => void
+  getSubCategories: (main: MainCategory) => string[]
+  addCustomSubCategory: (main: MainCategory, sub: string) => void
 
   syncMenuToSession: (sessionId: string, steps: LapStep[]) => void
 
@@ -159,6 +175,7 @@ type WorkoutStoreValue = {
   tickTimer: (elapsedMs: number) => void
 
   startFromLastMenu: () => { session: Session; menu: WorkoutMenuTemplate } | null
+  startFromSession: (sourceSessionId: string) => Session | null
 
   setMonthlyGoalDays: (days: number) => void
   setTimerAlarmEnabled: (enabled: boolean) => void
@@ -198,6 +215,7 @@ async function uploadCloudWorkoutData(
           timerAlarmEnabled: preferences.timerAlarmEnabled,
           keepScreenOnEnabled: preferences.keepScreenOnEnabled,
           exercises: preferences.exercises,
+          customSubCategories: preferences.customSubCategories,
         },
       }),
     })
@@ -234,6 +252,9 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [draftSessions, setDraftSessions] = useState<Record<string, Session>>({})
   const [menuTemplates, setMenuTemplates] = useState<WorkoutMenuTemplate[]>([])
   const [exercises, setExercises] = useState<ExerciseMaster[]>([])
+  const [customSubCategories, setCustomSubCategories] = useState<Record<MainCategory, string[]>>(
+    EMPTY_CUSTOM_SUB_CATEGORIES,
+  )
   const [activeSessionId, setActiveSessionIdState] = useState('new')
   const [activeRun, setActiveRun] = useState<ActiveTimerRun | null>(null)
   const [lastMenuId, setLastMenuIdState] = useState<string | null>(null)
@@ -265,6 +286,10 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    const loadedCustomSubs = loadJson(
+      STORAGE_KEYS.customSubCategories,
+      EMPTY_CUSTOM_SUB_CATEGORIES,
+    )
     const seeded = localStorage.getItem(STORAGE_KEYS.seeded)
     if (!seeded) {
       const initial = seedInitialState()
@@ -280,7 +305,10 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         loadJson(STORAGE_KEYS.sessions, mockSessions).filter(isPersistableSession),
       ))
       setMenuTemplates(loadJson(STORAGE_KEYS.menuTemplates, [HYROX_OFFICIAL_MENU]))
-      setExercises(loadJson(STORAGE_KEYS.exercises, exerciseMaster))
+      setExercises(normalizeExercises(
+        loadJson(STORAGE_KEYS.exercises, exerciseMaster),
+        loadedCustomSubs,
+      ))
     }
     setActiveRun(loadJson<ActiveTimerRun | null>(STORAGE_KEYS.activeRun, null))
     setLastMenuIdState(localStorage.getItem(STORAGE_KEYS.lastMenuId))
@@ -298,6 +326,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setKeepScreenOnEnabledState(
       loadJson(STORAGE_KEYS.keepScreenOnEnabled, DEFAULT_KEEP_SCREEN_ON_ENABLED),
     )
+    setCustomSubCategories(loadedCustomSubs)
     setHydrated(true)
   }, [])
 
@@ -318,6 +347,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && !cloudSynced) return
     saveJson(STORAGE_KEYS.exercises, exercises)
   }, [exercises, hydrated, isAuthenticated, cloudSynced])
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated && !cloudSynced) return
+    saveJson(STORAGE_KEYS.customSubCategories, customSubCategories)
+  }, [customSubCategories, hydrated, isAuthenticated, cloudSynced])
 
   useEffect(() => {
     if (!hydrated || authStatus === 'loading') return
@@ -345,6 +380,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         cloud.sessions.length > 0
         || cloud.menuTemplates.length > 0
         || (cloud.preferences?.exercises?.length ?? 0) > 0
+        || Boolean(cloud.preferences?.customSubCategories)
 
       skipNextCloudSave.current = true
 
@@ -352,7 +388,13 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         setSessions(dedupeSessions(cloud.sessions.filter(isPersistableSession)))
         setMenuTemplates(cloud.menuTemplates)
         if (cloud.preferences?.exercises?.length) {
-          setExercises(cloud.preferences.exercises)
+          setExercises(normalizeExercises(
+            cloud.preferences.exercises,
+            cloud.preferences.customSubCategories ?? EMPTY_CUSTOM_SUB_CATEGORIES,
+          ))
+        }
+        if (cloud.preferences?.customSubCategories) {
+          setCustomSubCategories(cloud.preferences.customSubCategories)
         }
         setMonthlyGoalDaysState(
           clampMonthlyGoalDays(
@@ -370,6 +412,10 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
           .filter(isPersistableSession)
         const localMenus = loadJson(STORAGE_KEYS.menuTemplates, menuTemplates)
         const localExercises = loadJson(STORAGE_KEYS.exercises, exercises)
+        const localCustomSubCategories = loadJson(
+          STORAGE_KEYS.customSubCategories,
+          customSubCategories,
+        )
         const localMonthlyGoalDays = clampMonthlyGoalDays(
           loadJson(STORAGE_KEYS.monthlyGoalDays, DEFAULT_MONTHLY_GOAL_DAYS),
         )
@@ -386,6 +432,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
           timerAlarmEnabled: localTimerAlarmEnabled,
           keepScreenOnEnabled: localKeepScreenOnEnabled,
           exercises: localExercises,
+          customSubCategories: localCustomSubCategories,
         })
       }
 
@@ -414,6 +461,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         timerAlarmEnabled,
         keepScreenOnEnabled,
         exercises,
+        customSubCategories,
       })
     }, 800)
 
@@ -422,6 +470,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     sessionsForApp,
     menuTemplates,
     exercises,
+    customSubCategories,
     monthlyGoalDays,
     timerAlarmEnabled,
     keepScreenOnEnabled,
@@ -616,6 +665,21 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setExercises(prev => prev.filter(e => e.id !== id))
   }, [])
 
+  const getSubCategories = useCallback((main: MainCategory) => {
+    return collectSubCategories(main, exercises, customSubCategories)
+  }, [exercises, customSubCategories])
+
+  const addCustomSubCategory = useCallback((main: MainCategory, sub: string) => {
+    const trimmed = sub.trim()
+    if (!trimmed) return
+    const existing = collectSubCategories(main, exercises, customSubCategories)
+    if (existing.includes(trimmed)) return
+    setCustomSubCategories(prev => ({
+      ...prev,
+      [main]: [...prev[main], trimmed],
+    }))
+  }, [exercises, customSubCategories])
+
   const getLastUsedMenu = useCallback((): WorkoutMenuTemplate | null => {
     if (lastMenuId) {
       const byId = menuTemplates.find(m => m.id === lastMenuId)
@@ -760,6 +824,32 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     return { session, menu }
   }, [getLastUsedMenu, createSession, syncMenuToSession, setLastUsedMenu])
 
+  const startFromSession = useCallback((sourceSessionId: string): Session | null => {
+    const source = getSession(sourceSessionId)
+    if (!source || !hasTransferableStructure(source)) return null
+
+    const id = newSessionId()
+    let session = cloneSessionStructure(source, {
+      id,
+      date: getLocalDateString(),
+      name: source.name,
+    })
+    if (source.plannedMenu?.length) {
+      session = { ...session, plannedMenu: cloneSteps(source.plannedMenu) }
+    }
+
+    setDraftSessions(prev => {
+      const next: Record<string, Session> = {}
+      for (const [sid, s] of Object.entries(prev)) {
+        if (isPersistableSession(s)) next[sid] = s
+      }
+      next[session.id] = session
+      return next
+    })
+    setActiveSessionIdState(session.id)
+    return session
+  }, [getSession])
+
   const setMonthlyGoalDays = useCallback((days: number) => {
     setMonthlyGoalDaysState(clampMonthlyGoalDays(days))
   }, [])
@@ -779,6 +869,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     sessions: sessionsForApp,
     menuTemplates,
     exercises,
+    customSubCategories,
     activeSessionId,
     activeRun,
     lastMenuId,
@@ -799,6 +890,8 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setLastUsedMenu,
     saveExercise,
     deleteExercise,
+    getSubCategories,
+    addCustomSubCategory,
     syncMenuToSession,
     startTimerRun,
     pauseTimerRun,
@@ -808,17 +901,18 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     resetTimerRun,
     tickTimer,
     startFromLastMenu,
+    startFromSession,
     setMonthlyGoalDays,
     setTimerAlarmEnabled,
     setKeepScreenOnEnabled,
   }), [
-    hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, exercises, activeSessionId, activeRun, lastMenuId,
+    hydrated, cloudSynced, cloudSyncing, sessionsForApp, menuTemplates, exercises, customSubCategories, activeSessionId, activeRun, lastMenuId,
     monthlyGoalDays, timerAlarmEnabled, keepScreenOnEnabled,
     getSession, getActiveSession, setActiveSessionId, createSession, updateSession,
     deleteSession, ensureSession, saveMenuTemplate, deleteMenuTemplate, duplicateMenuTemplate,
-    getLastUsedMenu, setLastUsedMenu, saveExercise, deleteExercise, syncMenuToSession, startTimerRun,
+    getLastUsedMenu, setLastUsedMenu, saveExercise, deleteExercise, getSubCategories, addCustomSubCategory, syncMenuToSession, startTimerRun,
     pauseTimerRun, resumeTimerRun, recordLap, completeTimerRun, resetTimerRun,
-    tickTimer, startFromLastMenu, setMonthlyGoalDays, setTimerAlarmEnabled, setKeepScreenOnEnabled,
+    tickTimer, startFromLastMenu, startFromSession, setMonthlyGoalDays, setTimerAlarmEnabled, setKeepScreenOnEnabled,
   ])
 
   if (!hydrated || (isAuthenticated && !cloudSynced)) {

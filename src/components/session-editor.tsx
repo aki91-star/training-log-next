@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ArrowLeft, Trash2, Search, X, Repeat2, ChevronDown, Flag } from 'lucide-react'
+import { Plus, ArrowLeft, Trash2, Search, X, Repeat2, ChevronDown, Flag, History, TrendingUp } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
@@ -17,10 +17,16 @@ import {
   createExerciseMaster,
   decomposeTimeSeconds,
   composeTimeSeconds,
+  formatTime,
+  formatDistance,
+  findPreviousExerciseHistory,
   MAIN_CATEGORIES,
-  SUB_CATEGORIES,
+  DEFAULT_SUB_CATEGORIES,
+  formatExerciseCategoryLabel,
+  hasSubCategoryGroups,
   type ExerciseRow, type BlockType, type Session,
-  type ExerciseMaster, type MainCategory, type SubCategory, type WorkBlock,
+  type ExerciseMaster, type MainCategory, type WorkBlock,
+  type ExerciseHistorySnapshot,
 } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
 import { getLocalDateString } from '@/lib/date-utils'
@@ -138,32 +144,37 @@ function TimeField({
   value?: number
   onChange: (seconds: number | undefined) => void
 }) {
-  const parts = decomposeTimeSeconds(value)
+  const [parts, setParts] = useState(() => decomposeTimeSeconds(value))
+  const lastEmitted = useRef<number | undefined>(value)
+
+  useEffect(() => {
+    if (value !== lastEmitted.current) {
+      setParts(decomposeTimeSeconds(value))
+      lastEmitted.current = value
+    }
+  }, [value])
+
+  function commit(next: { h: string; m: string; s: string }) {
+    setParts(next)
+    const seconds = composeTimeSeconds(next.h, next.m, next.s)
+    lastEmitted.current = seconds
+    onChange(seconds)
+  }
 
   function update(part: 'h' | 'm' | 's', raw: string) {
-    const digits = raw.replace(/\D/g, '')
-    const maxLen = part === 'h' ? 2 : 2
-    const next = { ...parts, [part]: digits.slice(0, maxLen) }
-    onChange(composeTimeSeconds(next.h, next.m, next.s))
+    const digits = raw.replace(/\D/g, '').slice(0, 2)
+    commit({ ...parts, [part]: digits })
   }
 
   function clamp(part: 'm' | 's') {
     const raw = parts[part]
     if (!raw) return
-    const n = Math.min(59, parseInt(raw, 10))
-    if (isNaN(n)) {
-      update(part, '')
+    const n = parseInt(raw, 10)
+    if (isNaN(n) || n < 0) {
+      commit({ ...parts, [part]: '' })
       return
     }
-    const padded = part === 'm' && (parts.h || n > 0)
-      ? String(n).padStart(2, '0')
-      : part === 's' && (parts.h || parts.m)
-        ? String(n).padStart(2, '0')
-        : String(n)
-    if (padded !== raw) {
-      const next = { ...parts, [part]: padded }
-      onChange(composeTimeSeconds(next.h, next.m, next.s))
-    }
+    if (n > 59) commit({ ...parts, [part]: '59' })
   }
 
   return (
@@ -593,64 +604,181 @@ function LapBlockView({
   )
 }
 
+// ===== ExerciseHistorySheet =====
+
+function formatHistoryDateJP(dateStr: string) {
+  const d = new Date(`${dateStr}T12:00:00`)
+  return `${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`
+}
+
+function ExerciseHistorySheet({
+  open,
+  onClose,
+  exerciseName,
+  history,
+}: {
+  open: boolean
+  onClose: () => void
+  exerciseName: string
+  history: ExerciseHistorySnapshot | null
+}) {
+  return (
+    <Sheet open={open} onOpenChange={o => !o && onClose()}>
+      <SheetContent
+        side="bottom"
+        className="bg-[#1a1a1a] border-white/10 rounded-t-2xl max-h-[85vh] overflow-y-auto px-0"
+      >
+        <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mt-3 mb-2 shrink-0" />
+
+        {!history ? (
+          <div className="px-4 py-10 text-center pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+            <History size={28} className="mx-auto mb-3 text-gray-700" />
+            <p className="text-sm text-gray-500">この種目の履歴はまだありません</p>
+          </div>
+        ) : (
+          <>
+            <SheetHeader className="px-4 pb-3 border-b border-white/10">
+              <p className="text-xs text-gray-500">{formatHistoryDateJP(history.date)}</p>
+              <SheetTitle className="text-white text-left">{history.sessionName}</SheetTitle>
+              <p className="text-xs text-gray-500 text-left">{exerciseName} · {history.rows.length}セット</p>
+            </SheetHeader>
+
+            <div className="p-4 space-y-1.5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+              <div className="space-y-1.5 pl-2 border-l border-white/8">
+                {history.rows.map(row => {
+                  const completed = isRowCompleted(row)
+                  const estRM = row.metrics.weight && row.metrics.reps
+                    ? calcEstimatedRM(row.metrics.weight, row.metrics.reps)
+                    : null
+                  const note = row.metrics.note?.trim()
+
+                  return (
+                    <div key={row.id}>
+                      <div
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                          completed ? 'bg-[#1f2a1f]' : 'bg-[#1e1e1e] opacity-60'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-xs">{exerciseName}</span>
+                          {!completed && (
+                            <span className="ml-2 text-[10px] text-yellow-500">下書き</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0">
+                          {row.metrics.bodyweight && !row.metrics.weight && <span>自重</span>}
+                          {row.metrics.weight != null && <span>{row.metrics.weight}kg</span>}
+                          {row.metrics.reps != null && <span>× {row.metrics.reps}回</span>}
+                          {row.metrics.distance != null && <span>{formatDistance(row.metrics.distance)}</span>}
+                          {row.metrics.time != null && <span>{formatTime(row.metrics.time)}</span>}
+                          {row.metrics.rpe != null && <span>RPE {row.metrics.rpe}</span>}
+                          {estRM && (
+                            <span className="text-orange-400 flex items-center gap-0.5">
+                              <TrendingUp size={11} />{estRM}kg
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {note && (
+                        <p className="mt-1 pl-3 pr-1 text-[11px] leading-snug text-gray-500">
+                          メモ: {note}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 // ===== ExerciseGroup =====
 
 function ExerciseGroup({
-  exerciseName, rows, onDelete, onChange, onCopy,
+  exerciseId, exerciseName, rows, sessionId, sessions,
+  onDelete, onChange, onCopy,
 }: {
+  exerciseId: string
   exerciseName: string
   rows: ExerciseRow[]
+  sessionId: string
+  sessions: Session[]
   onDelete: (id: string) => void
   onChange: (id: string, m: ExerciseRow['metrics']) => void
   onCopy: () => void
 }) {
   const [open, setOpen] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
   const doneCount = rows.filter(isRowCompleted).length
+  const history = findPreviousExerciseHistory(sessions, exerciseId, sessionId)
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl border border-white/8 overflow-hidden">
-      {/* ヘッダー */}
-      <div className="flex items-center gap-1.5 px-3 py-3">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{exerciseName}</span>
-        <span className="shrink-0 text-xs text-gray-500">{rows.length}セット</span>
-        <button
-          onClick={onCopy}
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-400 transition-colors hover:border-orange-500/30 hover:bg-orange-500/15 hover:text-orange-400"
-        >
-          <Plus size={12} strokeWidth={2.5} />
-          追加
-        </button>
-        <button
-          onClick={() => setOpen(v => !v)}
-          className="text-gray-600 hover:text-gray-400 transition-colors p-0.5"
-        >
-          <ChevronDown size={16} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
+    <>
+      <div className="bg-[#1a1a1a] rounded-xl border border-white/8 overflow-hidden">
+        {/* ヘッダー */}
+        <div className="flex items-center gap-1.5 px-3 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="min-w-0 truncate text-sm font-semibold">{exerciseName}</span>
+            <button
+              type="button"
+              onClick={() => setShowHistory(true)}
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-gray-400 transition-colors hover:border-orange-500/30 hover:bg-orange-500/10 hover:text-orange-400"
+            >
+              <History size={11} />
+              前回
+            </button>
+          </div>
+          <span className="shrink-0 text-xs text-gray-500">{rows.length}セット</span>
+          <button
+            onClick={onCopy}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-400 transition-colors hover:border-orange-500/30 hover:bg-orange-500/15 hover:text-orange-400"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            セット追加
+          </button>
+          <button
+            onClick={() => setOpen(v => !v)}
+            className="text-gray-600 hover:text-gray-400 transition-colors p-0.5"
+          >
+            <ChevronDown size={16} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* セット一覧 */}
+        {open && (
+          <div className="border-t border-white/8">
+            {rows.map((row, idx) => (
+              <SetRow
+                key={row.id}
+                row={row}
+                setNum={idx + 1}
+                prevRow={idx > 0 ? rows[idx - 1] : undefined}
+                onDelete={() => onDelete(row.id)}
+                onChange={m => onChange(row.id, m)}
+              />
+            ))}
+
+            {/* フッター：完了カウント */}
+            <div className="px-4 py-2 border-t border-white/5">
+              <span className="text-[11px] text-gray-600">
+                {doneCount}/{rows.length} セット完了
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* セット一覧 */}
-      {open && (
-        <div className="border-t border-white/8">
-          {rows.map((row, idx) => (
-            <SetRow
-              key={row.id}
-              row={row}
-              setNum={idx + 1}
-              prevRow={idx > 0 ? rows[idx - 1] : undefined}
-              onDelete={() => onDelete(row.id)}
-              onChange={m => onChange(row.id, m)}
-            />
-          ))}
-
-          {/* フッター：完了カウント */}
-          <div className="px-4 py-2 border-t border-white/5">
-            <span className="text-[11px] text-gray-600">
-              {doneCount}/{rows.length} セット完了
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
+      <ExerciseHistorySheet
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        exerciseName={exerciseName}
+        history={history}
+      />
+    </>
   )
 }
 
@@ -659,13 +787,22 @@ function ExerciseGroup({
 function ExercisePicker({ open, onSelect, onClose }: {
   open: boolean; onSelect: (ex: ExerciseMaster) => void; onClose: () => void
 }) {
-  const { exercises, saveExercise } = useWorkoutStore()
+  const { exercises, saveExercise, getSubCategories, addCustomSubCategory, customSubCategories } = useWorkoutStore()
   const [selectedMain, setSelectedMain] = useState<MainCategory | null>(null)
-  const [selectedSub, setSelectedSub] = useState<SubCategory | null>(null)
+  const [selectedSub, setSelectedSub] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newMain, setNewMain] = useState<MainCategory>('筋トレ')
+  const [newSub, setNewSub] = useState(DEFAULT_SUB_CATEGORIES['筋トレ'][0])
+  const [addingSub, setAddingSub] = useState(false)
+  const [newSubName, setNewSubName] = useState('')
+
+  const subCategories = selectedMain ? getSubCategories(selectedMain) : []
+  const showCreateSubGroups = hasSubCategoryGroups(newMain, customSubCategories)
+  const showFilterSubGroups = selectedMain
+    ? hasSubCategoryGroups(selectedMain, customSubCategories) && subCategories.length > 0
+    : false
 
   const filtered = exercises.filter(ex => {
     if (query) return ex.name.toLowerCase().includes(query.toLowerCase())
@@ -676,10 +813,30 @@ function ExercisePicker({ open, onSelect, onClose }: {
 
   function handleCreate() {
     if (!newName.trim()) return
-    const created = createExerciseMaster(newName.trim(), newMain, SUB_CATEGORIES[newMain][0])
+    const created = createExerciseMaster(newName.trim(), newMain, newSub)
     saveExercise(created)
     onSelect(created)
     setNewName(''); setShowCreate(false)
+  }
+
+  function handleMainSelect(main: MainCategory) {
+    setNewMain(main)
+    if (hasSubCategoryGroups(main, customSubCategories)) {
+      setNewSub(getSubCategories(main)[0] ?? DEFAULT_SUB_CATEGORIES[main][0] ?? '')
+    } else {
+      setNewSub('')
+    }
+    setAddingSub(false)
+    setNewSubName('')
+  }
+
+  function handleAddSubCategory(main: MainCategory) {
+    const trimmed = newSubName.trim()
+    if (!trimmed) return
+    addCustomSubCategory(main, trimmed)
+    setNewSub(trimmed)
+    setAddingSub(false)
+    setNewSubName('')
   }
 
   return (
@@ -708,12 +865,55 @@ function ExercisePicker({ open, onSelect, onClose }: {
               className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 outline-none mb-2" />
             <div className="flex gap-1.5 mb-2">
               {MAIN_CATEGORIES.map(cat => (
-                <button key={cat} onClick={() => setNewMain(cat)}
+                <button key={cat} onClick={() => handleMainSelect(cat)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${newMain === cat ? 'bg-orange-500 text-white' : 'bg-white/5 text-gray-400'}`}>
                   {cat}
                 </button>
               ))}
             </div>
+            {showCreateSubGroups ? (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {getSubCategories(newMain).map(sub => (
+                  <button key={sub} onClick={() => setNewSub(sub)}
+                    className={`px-2.5 py-1 rounded-full text-xs transition-colors ${newSub === sub ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+                    {sub}
+                  </button>
+                ))}
+                {addingSub ? (
+                  <div className="flex items-center gap-1">
+                    <input type="text" value={newSubName} onChange={e => setNewSubName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddSubCategory(newMain) }}
+                      placeholder="名前" autoFocus
+                      className="w-24 bg-[#2a2a2a] border border-orange-500/40 rounded-full px-2.5 py-1 text-xs outline-none" />
+                    <button onClick={() => handleAddSubCategory(newMain)} disabled={!newSubName.trim()}
+                      className="px-2 py-1 rounded-full text-xs bg-orange-500/20 text-orange-300 border border-orange-500/40 disabled:opacity-40">
+                      追加
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setAddingSub(true)}
+                    className="px-2.5 py-1 rounded-full text-xs bg-white/5 border border-dashed border-white/20 text-gray-400">
+                    <Plus size={12} className="inline" /> 追加
+                  </button>
+                )}
+              </div>
+            ) : addingSub ? (
+              <div className="flex items-center gap-1 mb-2">
+                <input type="text" value={newSubName} onChange={e => setNewSubName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddSubCategory(newMain) }}
+                  placeholder="小カテゴリ名" autoFocus
+                  className="flex-1 bg-[#2a2a2a] border border-orange-500/40 rounded-lg px-3 py-2 text-sm outline-none" />
+                <button onClick={() => handleAddSubCategory(newMain)} disabled={!newSubName.trim()}
+                  className="px-3 py-2 rounded-lg text-xs bg-orange-500/20 text-orange-300 border border-orange-500/40 disabled:opacity-40">
+                  追加
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setAddingSub(true)}
+                className="mb-2 px-2.5 py-1.5 rounded-lg text-xs bg-white/5 border border-dashed border-white/20 text-gray-400">
+                <Plus size={12} className="inline" /> 小カテゴリを追加（任意）
+              </button>
+            )}
             <button onClick={handleCreate} disabled={!newName.trim()}
               className="w-full bg-orange-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold py-2 rounded-lg">
               作成して追加
@@ -732,9 +932,9 @@ function ExercisePicker({ open, onSelect, onClose }: {
                 </button>
               ))}
             </div>
-            {selectedMain && (
+            {showFilterSubGroups && (
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {SUB_CATEGORIES[selectedMain].map(sub => (
+                {subCategories.map(sub => (
                   <button key={sub} onClick={() => setSelectedSub(selectedSub === sub ? null : sub)}
                     className={`px-2.5 py-1 rounded-full text-xs transition-colors ${selectedSub === sub ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
                     {sub}
@@ -760,7 +960,7 @@ function ExercisePicker({ open, onSelect, onClose }: {
                   className="w-full flex items-start gap-3 bg-[#222] hover:bg-[#2a2a2a] rounded-xl px-3 py-2.5 text-left transition-colors">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">{ex.name}</p>
-                    <p className="text-xs text-gray-500">{ex.mainCategory} · {ex.subCategory}</p>
+                    <p className="text-xs text-gray-500">{formatExerciseCategoryLabel(ex)}</p>
                   </div>
                 </button>
               ))}
@@ -1182,8 +1382,11 @@ export default function SessionEditor({
                   <>
                     {order.map(exId => (
                       <ExerciseGroup key={exId}
+                        exerciseId={exId}
                         exerciseName={groupMap[exId][0].exerciseName}
                         rows={groupMap[exId]}
+                        sessionId={sessionId}
+                        sessions={sessions}
                         onDelete={deleteRow}
                         onChange={changeMetrics}
                         onCopy={() => copySet(block.id, exId)} />

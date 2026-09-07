@@ -7,10 +7,11 @@ import {
   createExerciseMaster,
   isBuiltInExercise,
   MAIN_CATEGORIES,
-  SUB_CATEGORIES,
+  DEFAULT_SUB_CATEGORIES,
+  collectSubCategories,
+  hasSubCategoryGroups,
   type ExerciseMaster,
   type MainCategory,
-  type SubCategory,
 } from '@/lib/data'
 import { useWorkoutStore } from '@/lib/workout-store'
 
@@ -19,15 +20,20 @@ export default function ExerciseManagementView({
 }: {
   onBack: () => void
 }) {
-  const { exercises, saveExercise, deleteExercise } = useWorkoutStore()
+  const { exercises, saveExercise, deleteExercise, getSubCategories, addCustomSubCategory, customSubCategories } = useWorkoutStore()
 
   const [view, setView] = useState<'list' | 'edit'>('list')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [mainCategory, setMainCategory] = useState<MainCategory>('筋トレ')
-  const [subCategory, setSubCategory] = useState<SubCategory>('胸')
+  const [subCategory, setSubCategory] = useState(DEFAULT_SUB_CATEGORIES['筋トレ'][0])
   const [query, setQuery] = useState('')
   const [saved, setSaved] = useState(false)
+  const [addingSub, setAddingSub] = useState(false)
+  const [newSubName, setNewSubName] = useState('')
+
+  const subCategories = getSubCategories(mainCategory)
+  const showSubCategoryGroups = hasSubCategoryGroups(mainCategory, customSubCategories)
 
   const editingExercise = editingId
     ? exercises.find(e => e.id === editingId)
@@ -48,12 +54,22 @@ export default function ExerciseManagementView({
   const grouped = useMemo(() => {
     const sections: {
       main: MainCategory
-      sub: SubCategory
+      sub: string | null
       items: ExerciseMaster[]
     }[] = []
 
     for (const main of MAIN_CATEGORIES) {
-      for (const sub of SUB_CATEGORIES[main]) {
+      if (!hasSubCategoryGroups(main, customSubCategories)) {
+        const items = filtered
+          .filter(ex => ex.mainCategory === main)
+          .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+        if (items.length > 0) {
+          sections.push({ main, sub: null, items })
+        }
+        continue
+      }
+
+      for (const sub of collectSubCategories(main, filtered, customSubCategories)) {
         const items = filtered
           .filter(ex => ex.mainCategory === main && ex.subCategory === sub)
           .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
@@ -61,10 +77,17 @@ export default function ExerciseManagementView({
           sections.push({ main, sub, items })
         }
       }
+
+      const ungrouped = filtered
+        .filter(ex => ex.mainCategory === main && !ex.subCategory.trim())
+        .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+      if (ungrouped.length > 0) {
+        sections.push({ main, sub: null, items: ungrouped })
+      }
     }
 
     return sections
-  }, [filtered])
+  }, [filtered, customSubCategories])
 
   function openEdit(id: string) {
     const ex = exercises.find(e => e.id === id)
@@ -80,7 +103,9 @@ export default function ExerciseManagementView({
     setEditingId(null)
     setName('新規種目')
     setMainCategory('筋トレ')
-    setSubCategory('胸')
+    setSubCategory(DEFAULT_SUB_CATEGORIES['筋トレ'][0])
+    setAddingSub(false)
+    setNewSubName('')
     setView('edit')
   }
 
@@ -92,7 +117,22 @@ export default function ExerciseManagementView({
 
   function handleMainChange(main: MainCategory) {
     setMainCategory(main)
-    setSubCategory(SUB_CATEGORIES[main][0])
+    if (hasSubCategoryGroups(main, customSubCategories)) {
+      setSubCategory(getSubCategories(main)[0] ?? DEFAULT_SUB_CATEGORIES[main][0] ?? '')
+    } else {
+      setSubCategory('')
+    }
+    setAddingSub(false)
+    setNewSubName('')
+  }
+
+  function handleAddSubCategory() {
+    const trimmed = newSubName.trim()
+    if (!trimmed) return
+    addCustomSubCategory(mainCategory, trimmed)
+    setSubCategory(trimmed)
+    setAddingSub(false)
+    setNewSubName('')
   }
 
   function handleSave() {
@@ -175,23 +215,122 @@ export default function ExerciseManagementView({
         </div>
 
         <div>
-          <span className="text-xs text-gray-500">小カテゴリ</span>
-          <div className="flex flex-wrap gap-1.5 mt-1.5">
-            {SUB_CATEGORIES[mainCategory].map(sub => (
-              <button
-                key={sub}
-                type="button"
-                onClick={() => setSubCategory(sub)}
-                className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
-                  subCategory === sub
-                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
-                    : 'bg-white/5 border border-white/10 text-gray-400'
-                }`}
-              >
-                {sub}
-              </button>
-            ))}
-          </div>
+          <span className="text-xs text-gray-500">
+            小カテゴリ{showSubCategoryGroups ? '' : '（任意）'}
+          </span>
+          {showSubCategoryGroups ? (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {subCategories.map(sub => (
+                <button
+                  key={sub}
+                  type="button"
+                  onClick={() => setSubCategory(sub)}
+                  className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                    subCategory === sub
+                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
+                      : 'bg-white/5 border border-white/10 text-gray-400'
+                  }`}
+                >
+                  {sub}
+                </button>
+              ))}
+              {addingSub ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={newSubName}
+                    onChange={e => setNewSubName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleAddSubCategory()
+                      if (e.key === 'Escape') {
+                        setAddingSub(false)
+                        setNewSubName('')
+                      }
+                    }}
+                    placeholder="名前"
+                    autoFocus
+                    className="w-24 bg-[#252525] border border-orange-500/40 rounded-full px-2.5 py-1 text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSubCategory}
+                    disabled={!newSubName.trim()}
+                    className="px-2 py-1 rounded-full text-xs bg-orange-500/20 text-orange-300 border border-orange-500/40 disabled:opacity-40"
+                  >
+                    追加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingSub(false)
+                      setNewSubName('')
+                    }}
+                    className="p-1 text-gray-500 hover:text-gray-300"
+                    aria-label="キャンセル"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAddingSub(true)}
+                  className="px-2.5 py-1 rounded-full text-xs bg-white/5 border border-dashed border-white/20 text-gray-400 hover:text-orange-300 hover:border-orange-500/40 transition-colors flex items-center gap-1"
+                >
+                  <Plus size={12} /> 追加
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-1.5">
+              {addingSub ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={newSubName}
+                    onChange={e => setNewSubName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleAddSubCategory()
+                      if (e.key === 'Escape') {
+                        setAddingSub(false)
+                        setNewSubName('')
+                      }
+                    }}
+                    placeholder="小カテゴリ名"
+                    autoFocus
+                    className="flex-1 bg-[#252525] border border-orange-500/40 rounded-lg px-3 py-2 text-sm outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSubCategory}
+                    disabled={!newSubName.trim()}
+                    className="px-3 py-2 rounded-lg text-xs bg-orange-500/20 text-orange-300 border border-orange-500/40 disabled:opacity-40"
+                  >
+                    追加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingSub(false)
+                      setNewSubName('')
+                    }}
+                    className="p-2 text-gray-500 hover:text-gray-300"
+                    aria-label="キャンセル"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAddingSub(true)}
+                  className="px-2.5 py-1.5 rounded-lg text-xs bg-white/5 border border-dashed border-white/20 text-gray-400 hover:text-orange-300 hover:border-orange-500/40 transition-colors flex items-center gap-1"
+                >
+                  <Plus size={12} /> 小カテゴリを追加
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 pt-2">
@@ -277,11 +416,13 @@ export default function ExerciseManagementView({
 
               <div className="space-y-3 pl-1">
                 {mainSections.map(({ sub, items }) => (
-                  <div key={`${main}-${sub}`} className="space-y-1.5">
-                    <div className="flex items-center gap-2 px-1">
-                      <span className="text-[11px] font-medium text-gray-400">{sub}</span>
-                      <span className="text-[10px] text-gray-600 tabular-nums">{items.length}</span>
-                    </div>
+                  <div key={`${main}-${sub ?? 'flat'}`} className="space-y-1.5">
+                    {sub && (
+                      <div className="flex items-center gap-2 px-1">
+                        <span className="text-[11px] font-medium text-gray-400">{sub}</span>
+                        <span className="text-[10px] text-gray-600 tabular-nums">{items.length}</span>
+                      </div>
+                    )}
 
                     <div className="space-y-1">
                       {items.map(ex => (

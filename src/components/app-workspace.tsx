@@ -53,6 +53,7 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     activeRun,
     pauseTimerRun,
     getSession,
+    startFromSession,
   } = useWorkoutStore()
 
   const [activePane, setActivePane] = useState<AppPane>(
@@ -105,6 +106,22 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
     router.replace('/?pane=training&session=new', { scroll: false })
   }, [router, setActiveSessionId])
 
+  const transferSessionToRecording = useCallback((sourceSessionId: string) => {
+    if (
+      activeRun &&
+      (activeRun.status === 'running' || activeRun.status === 'paused')
+    ) {
+      const ok = window.confirm('計測中のセッションがあります。切り替えると計測が一時停止されます。続けますか？')
+      if (!ok) return
+      pauseTimerRun()
+    }
+    const session = startFromSession(sourceSessionId)
+    if (!session) return
+    setActiveSessionId(session.id)
+    setActivePane('training')
+    router.replace(`/?pane=training&session=${session.id}`, { scroll: false })
+  }, [router, setActiveSessionId, activeRun, pauseTimerRun, startFromSession])
+
   const handleSessionResolved = useCallback((sessionId: string) => {
     setActiveSessionId(sessionId)
     if (activePane === 'training') {
@@ -154,7 +171,11 @@ function AppWorkspaceInner({ initialPane = 'history' }: { initialPane?: AppPane 
         >
           <PaneHeader title="履歴" subtitle="カレンダー・月次合計・セッション一覧" />
           <div className="app-pane-body">
-            <HistoryPane onOpenSession={openSession} onStartNew={startNewSession} />
+            <HistoryPane
+              onOpenSession={openSession}
+              onStartNew={startNewSession}
+              onTransferToRecording={transferSessionToRecording}
+            />
           </div>
         </section>
 
